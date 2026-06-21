@@ -7,7 +7,7 @@ const router = Router()
 const clientSide = new OAuth2Client(
     process.env.CLIENT_ID,
     process.env.CLIENT_SECRET,
-    'https://yegna-pay-api.vercel.app/callback/google'
+    'https://yegna-pay-api.vercel.app/auth/third-party'
 )
 
 router.post('/', (req, res) => {
