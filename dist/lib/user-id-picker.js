@@ -1,0 +1,26 @@
+import { prisma } from "../lib/prisma.js";
+export async function UserIdFinder(apiKey) {
+    const userProject = await prisma.projects.findFirst({
+        where: {
+            api_sec_key: apiKey
+        },
+        select: {
+            user: true
+        }
+    });
+    if (!userProject) {
+        return {
+            message: "can't extract user id",
+            success: false,
+            data: null
+        };
+    }
+    else {
+        return {
+            message: "success id",
+            success: true,
+            data: userProject.user.id
+        };
+    }
+}
+//# sourceMappingURL=user-id-picker.js.map

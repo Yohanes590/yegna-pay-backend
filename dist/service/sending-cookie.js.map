@@ -1,0 +1,1 @@
+{"version":3,"file":"sending-cookie.js","sourceRoot":"","sources":["../../service/sending-cookie.ts"],"names":[],"mappings":"AAAA,MAAM,CAAC,KAAK,UAAU,UAAU,CAAC,KAAa;IAC1C,MAAM,KAAK,CAAC,GAAG,OAAO,CAAC,GAAG,CAAC,UAAW,gBAAgB,EAAE;QACpD,MAAM,EAAE,MAAM;QACd,OAAO,EAAE;YACL,eAAe,EAAE,UAAU,KAAK,EAAE;SACrC;KACJ,CAAC,CAAA;AACN,CAAC"}

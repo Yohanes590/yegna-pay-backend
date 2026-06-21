@@ -1,0 +1,17 @@
+{
+  "user": {
+    "iss": "https://accounts.google.com",
+    "azp": "107830582970-869vgb7cpdgnodavu4leeje8e91i25lu.apps.googleusercontent.com",
+    "aud": "107830582970-869vgb7cpdgnodavu4leeje8e91i25lu.apps.googleusercontent.com",
+    "sub": "110960048433420533007",
+    "email": "jplussince34@gmail.com",
+    "email_verified": true,
+    "at_hash": "bnqdo5EOVnV-OQPjiPDHhw",
+    "name": "Yohanes Mulugeta",
+    "picture": "https://lh3.googleusercontent.com/a/ACg8ocLTXnmX3UC9Lwf_oapaKJBWYa0zrD3mri3jaXoQiibYFV_9lSwN=s96-c",
+    "given_name": "Yohanes",
+    "family_name": "Mulugeta",
+    "iat": 1774346792,
+    "exp": 1774350392
+  }
+}

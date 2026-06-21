@@ -1,0 +1,53 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.ts",
+"scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "prisma generate && tsc",
+    "start": "node dist/server.js",
+    "dev": "nodemon --exec tsx server.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@cedrugs/pdf-parse": "^1.0.0",
+    "@prisma/adapter-pg": "^7.5.0",
+    "@prisma/client": "^7.5.0",
+    "@types/bcrypt": "^6.0.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/nodemailer": "^7.0.11",
+    "axios": "^1.15.0",
+    "bcryptjs": "^3.0.3",
+    "better-auth": "^1.5.6",
+    "cheerio": "^1.2.0",
+    "cors": "^2.8.6",
+    "crypto-random-string": "^5.0.0",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
+    "google-auth-library": "^10.6.2",
+    "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^8.0.3",
+    "pdf-lib": "^1.17.1",
+    "pdf2json": "^4.0.2",
+    "pg": "^8.20.0",
+    "playwright": "^1.60.0",
+    "puppeteer": "^25.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/pdf-parse": "^1.1.5",
+    "nodemon": "^3.1.14",
+    "prisma": "^7.5.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
