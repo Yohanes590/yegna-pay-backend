@@ -19,7 +19,7 @@ router.get("/", async (req, res) => {
             },
             body: JSON.stringify({
                 client_id: process.env.GITHUB_CLIENT_ID,
-                client_secret: process.env.GITHUB_AUTH_SECRATE,
+                client_secret: process.env.GITHUB_CLIENT_SECRET,
                 code,
             })
         })

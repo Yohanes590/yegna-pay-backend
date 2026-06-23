@@ -17,6 +17,7 @@ import deleteProject from "./routes/user/delete-project.js"
 import editProject from "./routes/user/edit-project.js"
 import CroneJob from "./routes/crone-job.js"
 import BuyRequest from './routes/user/buy-request.js'
+import { toNodeHandler } from "better-auth/node"
 // ------------------------------- //
 
 
@@ -26,6 +27,7 @@ app.use(cors({
     credentials: true
 }))
 app.use(Express.json())
+
 
 app.use("/crone-job-db-activator", CroneJob)
 app.use("/auth/third-party", thirdParty)
