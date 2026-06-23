@@ -4,7 +4,6 @@ import { JWT, OAuth2Client } from 'google-auth-library';
 import { UserCheckFunction } from "../lib/user-checking-function.js";
 import { prisma } from "../lib/prisma.js"
 import { JWTGenerate } from "../lib/JWT-generate.js";
-import { SendCookie } from "../service/sending-cookie.js";
 const router = Router()
 const clientSide = new OAuth2Client(
     process.env.CLIENT_ID,
