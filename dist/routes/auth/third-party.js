@@ -4,7 +4,7 @@ import { ErrorPage } from "../../service/error-page-display.js";
 import * as dotenv from "dotenv";
 dotenv.config();
 const router = Router();
-const clientSide = new OAuth2Client(process.env.CLIENT_ID, process.env.CLIENT_SECRET, 'https://yegna-pay-api.vercel.app/callback/google');
+const clientSide = new OAuth2Client(process.env.CLIENT_ID, process.env.CLIENT_SECRET, 'https://yegna-pay-api.vercel.app/auth/third-party');
 router.post('/', (req, res) => {
     if (req.body.data == "google") {
         const RedirectURL = clientSide.generateAuthUrl({

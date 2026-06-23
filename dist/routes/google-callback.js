@@ -4,7 +4,6 @@ import { JWT, OAuth2Client } from 'google-auth-library';
 import { UserCheckFunction } from "../lib/user-checking-function.js";
 import { prisma } from "../lib/prisma.js";
 import { JWTGenerate } from "../lib/JWT-generate.js";
-import { SendCookie } from "../service/sending-cookie.js";
 const router = Router();
 const clientSide = new OAuth2Client(process.env.CLIENT_ID, process.env.CLIENT_SECRET, process.env.SERVER_URL);
 router.get("/", async (req, res) => {
@@ -52,7 +51,7 @@ router.get("/", async (req, res) => {
             id: userInfo?.id,
             email: userInfo?.email
         }, "7d");
-        await SendCookie(UserToken.message);
+        // await SendCookie(UserToken.message)
         return res.redirect(`${process.env.CLIENT_URL}/api/call-back?token=${UserToken.message}`);
         // return res.redirect(`${process.env.CLIENT_URL}/dashboard`);
     }

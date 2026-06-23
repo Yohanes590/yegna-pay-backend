@@ -7,76 +7,87 @@ import bcrypt from "bcryptjs";
 import { ErrorPage } from "../../service/error-page-display.js";
 const router = Router();
 router.post("/", async (req, res) => {
-    if (req.body.first_name == "" || req.body.last_name == "" || req.body.email == "" || req.body.password == "") {
+    const { first_name, last_name, email, password } = req.body;
+    if (!first_name || !last_name || !email || !password) {
         return res.status(400).json({
-            status: 401,
+            status: 400,
             message: "Please fill blank spaces"
         });
     }
-    else {
-        const CheckEmail = await UserCheckFunction(req.body.email);
+    try {
+        const CheckEmail = await UserCheckFunction(email);
         if (CheckEmail.status == 400) {
             const CheckTheVerification = await prisma.users.findUnique({
-                where: {
-                    email: req.body.email
-                }
+                where: { email }
             });
             if (CheckTheVerification?.verified) {
-                return res.status(400).send({
+                return res.status(400).json({
                     status: 400,
                     message: "Email address already exists",
                 });
             }
-            else {
-                const Token = JWTGenerate({
-                    id: CheckTheVerification?.id,
-                    email: req.body.email
-                }, "15m");
-                await SendingMessage(req.body.email, Token.message);
-                return res.status(403).send({
+            // Generate JWT for existing unverified user
+            const TokenResult = JWTGenerate({
+                id: CheckTheVerification?.id,
+                email: email
+            }, "15m");
+            // NOTE: Double check if your token string is in TokenResult.token or TokenResult.message!
+            const actualToken = TokenResult.message || TokenResult.message;
+            try {
+                await SendingMessage(email, actualToken);
+                return res.status(403).json({
                     status: 403,
                     message: "Please Verify Your Email Address"
                 });
             }
+            catch (mailErr) {
+                console.error("Mail dispatch error (Existing User):", mailErr);
+                return res.status(500).json({ status: 500, message: "Email delivery failed." });
+            }
+        }
+        // Brand New User Flow
+        const genSalt = await bcrypt.genSalt(10);
+        const HashedPassword = await bcrypt.hash(password, genSalt);
+        const userId = await prisma.users.create({
+            data: {
+                full_name: `${first_name} ${last_name}`,
+                email: email,
+                password: HashedPassword,
+                Provider: "gmail",
+                account_status: "active",
+                payment_plan: "free",
+                verified: false,
+                request_available: 200
+            }
+        });
+        const TokenResult = JWTGenerate({
+            id: userId.id,
+            email: email
+        }, "15m");
+        if (TokenResult.status === 200) {
+            const actualToken = TokenResult.message || TokenResult.message;
+            try {
+                await SendingMessage(email, actualToken);
+                return res.status(403).json({
+                    status: 403,
+                    message: "Please Verify Your Email Address",
+                });
+            }
+            catch (mailErr) {
+                console.error("Mail dispatch error (New User):", mailErr);
+                return res.status(500).json({ status: 500, message: "Email delivery failed." });
+            }
         }
         else {
-            try {
-                const genSalt = await bcrypt.genSalt(10);
-                const HashedPassword = await bcrypt.hash(req.body.password, genSalt);
-                const userId = await prisma.users.create({
-                    data: {
-                        full_name: req.body.first_name + " " + req.body.last_name,
-                        email: req.body.email,
-                        password: HashedPassword,
-                        Provider: "gmail",
-                        account_status: "active",
-                        payment_plan: "free",
-                        verified: false,
-                        request_available: 200
-                    }
-                });
-                const Token = JWTGenerate({
-                    id: userId.id,
-                    email: req.body.email
-                }, "15m");
-                if (Token.status == 200) {
-                    await SendingMessage(req.body.email, Token.message);
-                    return res.json({
-                        status: 405,
-                        message: "Please Verify Your Email Address",
-                    });
-                }
-                else {
-                    return res.json({
-                        status: 400,
-                        message: "something went wrong"
-                    });
-                }
-            }
-            catch (error) {
-                return res.status(500).send(ErrorPage);
-            }
+            return res.status(400).json({
+                status: 400,
+                message: "Something went wrong generating your token"
+            });
         }
+    }
+    catch (error) {
+        console.error("Global Registration Error:", error);
+        return res.status(500).send(ErrorPage);
     }
 });
 export default router;

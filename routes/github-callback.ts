@@ -2,6 +2,7 @@ import { Router } from "express"
 import { prisma } from "../lib/prisma.js"
 import { JWTGenerate } from "../lib/JWT-generate.js"
 import { SendCookie } from "../service/sending-cookie.js"
+
 const router = Router()
 
 router.get("/", async (req, res) => {
@@ -11,6 +12,7 @@ router.get("/", async (req, res) => {
     }
 
     try {
+        // --- 1. EXCHANGE CODE FOR ACCESS TOKEN ---
         const TokenResponse = await fetch('https://github.com/login/oauth/access_token', {
             method: "POST",
             headers: {
@@ -30,7 +32,8 @@ router.get("/", async (req, res) => {
 
         const user_token = await TokenResponse.json()
 
-        if (!user_token.access_token) {
+        if (!user_token || !user_token.access_token) {
+            console.error("Vercel Log - Invalid Token Response:", user_token)
             return res.status(400).json({ "error": "Invalid token response", "details": user_token })
         }
 
@@ -40,68 +43,94 @@ router.get("/", async (req, res) => {
             'User-Agent': 'Yegna-Pay'
         }
 
+        // --- 2. FETCH USER PROFILE ---
         const FetchUserData = await fetch("https://api.github.com/user", {
             method: "GET",
             headers: fetchHeaders
         })
         const UserInfo = await FetchUserData.json()
 
+        // --- 3. FETCH USER EMAILS ---
         const fetchEmailAddress = await fetch("https://api.github.com/user/emails", {
             method: "GET",
             headers: fetchHeaders
         })
         const userEmail = await fetchEmailAddress.json()
 
+        // Guardrail: Ensure userEmail is an array before doing any array methods (.find)
         if (!userEmail || !Array.isArray(userEmail) || userEmail.length === 0) {
+            console.error("Vercel Log - Empty or Invalid Email List:", userEmail)
             return res.status(400).json({
                 "error": "there is no information",
-                "details": "Email list empty from GitHub.",
+                "details": "Email list empty or failed from GitHub.",
                 "github_response": userEmail
             })
         }
 
-        const primaryEmailObject = userEmail.find((emailObj: any) => emailObj.primary === true)
-        const primaryEmail = primaryEmailObject ? primaryEmailObject.email : userEmail[0]?.email
+        // Safe extraction of primary email with optional chaining checks
+        const primaryEmailObject = userEmail.find((emailObj: any) => emailObj && emailObj.primary === true)
+        // Completely safe for TypeScript and guarantees no production crashes
+        const primaryEmail = primaryEmailObject?.email || (userEmail && userEmail[0] ? (userEmail[0] as any).email : null);
 
         if (!primaryEmail) {
             return res.status(400).json({
                 "error": "there is no information",
-                "details": "Primary email property missing"
+                "details": "Primary email property missing from array match."
             })
         }
 
-        // FIX: Direct Prisma lookup instead of depending on an external function wrapper
-        let existingUser = await prisma.users.findUnique({
-            where: { email: primaryEmail }
-        })
+        // --- 4. DATABASE OPERATIONS WITH PRISMA ---
+        let existingUser = null;
+        try {
+            existingUser = await prisma.users.findUnique({
+                where: { email: primaryEmail }
+            })
 
-        // If the user truly doesn't exist in the DB, create them now
-        if (!existingUser) {
-            existingUser = await prisma.users.create({
-                data: {
-                    full_name: UserInfo.name || UserInfo.login,
-                    avatar_url: UserInfo.avatar_url,
-                    email: primaryEmail,
-                    Provider: "github",
-                    account_status: "active",
-                    payment_plan: "free",
-                    verified: true,
-                    request_available: 200
-                }
+            if (!existingUser) {
+                existingUser = await prisma.users.create({
+                    data: {
+                        full_name: UserInfo.name || UserInfo.login || "GitHub User",
+                        avatar_url: UserInfo.avatar_url || "",
+                        email: primaryEmail,
+                        Provider: "github",
+                        account_status: "active",
+                        payment_plan: "free",
+                        verified: true,
+                        request_available: 200
+                    }
+                })
+            }
+        } catch (dbError: any) {
+            console.error("Vercel Log - Database/Prisma Failed:", dbError.message || dbError)
+            return res.status(500).json({
+                error: "Database error",
+                details: "Failed to query or write user to database. Check your DATABASE_URL environment variable."
             })
         }
 
-        // This token generation will now ALWAYS have a valid user ID
+        // --- 5. JWT GENERATION GUARDRAIL ---
+        // Absolutely ensures existingUser is valid before reading properties
+        if (!existingUser || !existingUser.email || !existingUser.id) {
+            console.error("Vercel Log - existingUser object is missing required fields:", existingUser)
+            return res.status(500).json({
+                error: "Internal Server Error",
+                details: "User record processing failed unexpectedly."
+            })
+        }
+
         const createLoginToken = JWTGenerate({
             id: existingUser.id,
             email: existingUser.email
         }, "7d")
 
+        // Send token and redirect
         await SendCookie(createLoginToken.message)
-        return res.redirect(`${process.env.CLIENT_URL}/api/call-back?token=${createLoginToken.message}`);
+
+        const clientRedirectUrl = process.env.CLIENT_URL || "http://localhost:3000"
+        return res.redirect(`${clientRedirectUrl}/api/call-back?token=${createLoginToken.message}`);
 
     } catch (error: any) {
-        console.error("OAuth Error:", error)
+        console.error("Vercel Log - Core OAuth Callback Error:", error)
         return res.status(500).json({ error: error.message || "Internal Server Error" })
     }
 })
