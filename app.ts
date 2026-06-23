@@ -28,6 +28,9 @@ app.use(cors({
 }))
 app.use(Express.json())
 
+app.set('trust proxy', 1)
+app.use(RateLimiter)
+
 
 app.use("/crone-job-db-activator", CroneJob)
 app.use("/auth/third-party", thirdParty)
@@ -48,7 +51,6 @@ app.use("/user/buy-request", BuyRequest)
 
 app.use("/api/transaction/create", transactionCreate)
 app.use(errorMiddleware)
-app.use(RateLimiter)
 
 
 export default app
