@@ -17,7 +17,6 @@ import deleteProject from "./routes/user/delete-project.js"
 import editProject from "./routes/user/edit-project.js"
 import CroneJob from "./routes/crone-job.js"
 import BuyRequest from './routes/user/buy-request.js'
-import { toNodeHandler } from "better-auth/node"
 // ------------------------------- //
 
 
@@ -30,7 +29,12 @@ app.use(Express.json())
 
 app.set('trust proxy', 1)
 app.use(RateLimiter)
-
+app.get("/", (req, res) => {
+    res.json({
+        message: "Yegna server is alive",
+        status: 200
+    });
+});
 
 app.use("/crone-job-db-activator", CroneJob)
 app.use("/auth/third-party", thirdParty)
