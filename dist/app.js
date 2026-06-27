@@ -38,7 +38,7 @@ app.use("/user/delete-project", deleteProject);
 app.use("/user/edit-project", editProject);
 app.use("/user/buy-request", BuyRequest);
 // user related route //
-app.use("/api/transaction/create", transactionCreate);
+app.use("/api/transaction-create", transactionCreate);
 app.use(errorMiddleware);
 app.use(RateLimiter);
 export default app;

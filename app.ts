@@ -53,7 +53,7 @@ app.use("/user/edit-project", editProject)
 app.use("/user/buy-request", BuyRequest)
 // user related route //
 
-app.use("/api/transaction/create", transactionCreate)
+app.use("/api/transaction-create", transactionCreate)
 app.use(errorMiddleware)
 
 
