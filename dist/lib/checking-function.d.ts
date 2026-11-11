@@ -30,11 +30,11 @@ export declare function CheckingFunction(userData: TransactionInput): Promise<{
         from: string;
         to: string;
         method: string;
+        transaction_id: string;
         transaction_status: string;
         created_at: Date;
-        transaction_id: string;
-        currency: string;
         transaction_amount: import("@prisma/client-runtime-utils").Decimal;
+        currency: string;
         risk_score: number;
     };
     riskScore: number;

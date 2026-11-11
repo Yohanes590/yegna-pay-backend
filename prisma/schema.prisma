@@ -14,18 +14,22 @@ datasource db {
 
 
 model Users {
-  id                String     @id @default(uuid())
-  full_name         String
-  email             String     @unique
-  password          String?
-  avatar_url        String?
-  Provider          String?
-  account_status    String
-  payment_plan      String
-  verified          Boolean
-  request_available Int
-  projects          Projects[]
-  revenues          Revenue[]  // <--- ADD THIS LINE HERE
+  id                      String     @id @default(uuid())
+  full_name               String
+  email                   String     @unique
+  password                String?
+  avatar_url              String?
+  Provider                String?
+  account_status          String
+  payment_plan            String
+  verified                Boolean
+  request_available       Int
+  free_requests_remaining Int        @default(200)
+  free_requests_used      Int        @default(0)
+  paid_requests_balance   Int        @default(0)
+  paid_requests_used      Int        @default(0)
+  projects                Projects[]
+  revenues                Revenue[]
 }
 
 
@@ -57,6 +61,7 @@ model Projects {
   Admin_projects Admin? @relation(fields: [adminID] , references: [id] ,onDelete: Cascade)
   ProjectBalance String 
   transactions Transaction[]
+  qrReceiptImages QrReceiptImage[]
   before_expires String?
   receiver_name String?
 }
@@ -90,6 +95,28 @@ model TransactionLog {
   created_at DateTime @default(now())
 }
 
+model QrReceiptImage {
+  id                     String    @id @default(uuid())
+  projectId              String
+  projects               Projects  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  imageUrl               String
+  cloudinaryPublicId     String?
+  localFilePath          String?
+  mimeType               String    @default("image/png")
+  status                 String
+  extractedTransactionId String?
+  qrContent              String?
+  transactionAmount      Decimal?
+  currency               String    @default("ETB")
+  bankName               String    @default("UNKNOWN")
+  receiptDate            String?
+  failureReason          String?
+  verifiedAt             DateTime?
+  createdAt              DateTime  @default(now())
+
+  @@index([projectId, status, createdAt])
+}
+
 model PricingTable {
   id String @id @default(uuid())
   price_name String
@@ -112,5 +139,67 @@ model Revenue {
   currency      String   @default("ETB")
   time_stamp    DateTime @default(now())
   user_id       String
+  amount        Decimal? @default(0)
+  status        String   @default("verified")
+  method        String   @default("CBE")
   user          Users    @relation(fields: [user_id], references: [id], onDelete: Cascade) 
+}
+
+
+model User {
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id @default(uuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@map("account")
+}
+
+model Verification {
+  id         String    @id @default(uuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime? @default(now())
+  updatedAt  DateTime? @updatedAt
+
+  @@map("verification")
 }

@@ -1,1 +1,1 @@
-{"version":3,"file":"JWT-generate.d.ts","sourceRoot":"","sources":["../../lib/JWT-generate.ts"],"names":[],"mappings":"AACA,wBAAgB,WAAW,CAAC,IAAI,EAAE,GAAG,EAAE,SAAS,EAAE,GAAG;;;EAiBpD;AAGD,wBAAgB,WAAW,CAAC,KAAK,EAAE,MAAM;;;EAaxC"}
+{"version":3,"file":"JWT-generate.d.ts","sourceRoot":"","sources":["../../lib/JWT-generate.ts"],"names":[],"mappings":"AAAA,OAAO,eAAe,CAAC;AAKvB,wBAAgB,WAAW,CAAC,IAAI,EAAE,GAAG,EAAE,SAAS,EAAE,GAAG;;;EAgBpD;AAED,wBAAgB,WAAW,CAAC,KAAK,EAAE,MAAM;;;EAmBxC"}

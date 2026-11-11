@@ -12,6 +12,10 @@ export declare const UserCheckFunction: (userEmail: string) => Promise<{
         payment_plan: string;
         verified: boolean;
         request_available: number;
+        free_requests_remaining: number;
+        free_requests_used: number;
+        paid_requests_balance: number;
+        paid_requests_used: number;
     };
 } | {
     status: number;

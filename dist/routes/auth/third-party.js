@@ -30,4 +30,5 @@ router.post('/', (req, res) => {
     }
 });
 export default router;
+// djiaosdasdiansda;isda;sid
 //# sourceMappingURL=third-party.js.map

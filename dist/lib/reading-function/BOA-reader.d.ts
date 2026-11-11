@@ -2,6 +2,7 @@ export interface BOAReceiptData {
     transferredAmount?: string;
     receiverAccount?: string;
     receiverName?: string;
+    senderName?: string;
     transactionDate?: string;
     transactionType?: string;
     transactionReference?: string;
@@ -9,5 +10,6 @@ export interface BOAReceiptData {
 }
 export declare function BOAReadingPDF(transactionData: {
     transaction_id: string;
+    transaction_url?: string;
 }): Promise<BOAReceiptData>;
 //# sourceMappingURL=BOA-reader.d.ts.map

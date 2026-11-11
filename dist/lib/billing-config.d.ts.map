@@ -1,0 +1,1 @@
+{"version":3,"file":"billing-config.d.ts","sourceRoot":"","sources":["../../lib/billing-config.ts"],"names":[],"mappings":"AAAA,OAAO,eAAe,CAAC;AAEvB,MAAM,WAAW,aAAa;IAC1B,cAAc,EAAE,MAAM,CAAC;IACvB,YAAY,EAAE,MAAM,CAAC;IACrB,eAAe,EAAE,MAAM,CAAC;IACxB,aAAa,EAAE,MAAM,CAAC;IACtB,aAAa,EAAE,MAAM,CAAC;IACtB,QAAQ,EAAE,MAAM,CAAC;CACpB;AAED,wBAAgB,gBAAgB,IAAI,aAAa,CAmBhD"}

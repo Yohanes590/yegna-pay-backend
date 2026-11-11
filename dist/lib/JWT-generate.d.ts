@@ -1,3 +1,4 @@
+import "dotenv/config";
 export declare function JWTGenerate(data: any, life_span: any): {
     status: number;
     message: string;

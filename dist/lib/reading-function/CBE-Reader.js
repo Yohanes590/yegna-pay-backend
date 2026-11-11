@@ -1,13 +1,29 @@
+import "dotenv/config";
 import axios from "axios";
 import pdf from "@cedrugs/pdf-parse";
 export async function CBEReadingPDF(transactionData) {
-    const cbe_link = `https://apps.cbe.com.et:100/?id=${transactionData.transaction_id}`;
+    const rawCbeDomain = process.env.CBE_DOMAIN || "https://apps.cbe.com.et/";
+    const normalizedDomain = rawCbeDomain.endsWith("/") ? rawCbeDomain : `${rawCbeDomain}/`;
+    let cbe_link;
+    if (transactionData.transaction_url && (transactionData.transaction_url.startsWith("http://") || transactionData.transaction_url.startsWith("https://"))) {
+        cbe_link = transactionData.transaction_url;
+    }
+    else if (transactionData.transaction_id && (transactionData.transaction_id.startsWith("http://") || transactionData.transaction_id.startsWith("https://"))) {
+        cbe_link = transactionData.transaction_id;
+    }
+    else if (transactionData.transaction_id && (transactionData.transaction_id.startsWith("?") || transactionData.transaction_id.startsWith("#") || transactionData.transaction_id.startsWith("/"))) {
+        cbe_link = `${normalizedDomain}${transactionData.transaction_id.replace(/^\//, "")}`;
+    }
+    else {
+        cbe_link = `${normalizedDomain}?id=${transactionData.transaction_id}`;
+    }
     try {
         const response = await axios.get(cbe_link, {
             responseType: "arraybuffer",
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
+            },
+            timeout: 15000
         });
         const data = await pdf(Buffer.from(response.data));
         const rawText = data.text;
@@ -27,14 +43,18 @@ export async function CBEReadingPDF(transactionData) {
             totalAmountDebited: (rawText.match(/Total amount debited from customers account\s*(.*)\n/i)?.[1] ?? "0.00 ETB")
                 .trim()
         };
+        const isVerified = Boolean(extracted.referenceNo &&
+            (transactionData.transaction_id.includes(extracted.referenceNo) ||
+                extracted.referenceNo.includes(transactionData.transaction_id) ||
+                (extracted.referenceNo + "11294152" === transactionData.transaction_id)));
         return {
             success: true,
             extractedData: extracted,
-            isVerified: extracted.referenceNo + "11294152" === transactionData.transaction_id
+            isVerified
         };
     }
     catch (error) {
-        return { success: false, error: "Failed to read receipt", };
+        return { success: false, error: error?.message || "Failed to read receipt" };
     }
 }
 //# sourceMappingURL=CBE-Reader.js.map

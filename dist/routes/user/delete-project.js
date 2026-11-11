@@ -1,34 +1,59 @@
 import { Router } from "express";
+import { fromNodeHeaders } from "better-auth/node";
 import { prisma } from "../../lib/prisma.js";
 import { VerifyToken } from "../../lib/JWT-generate.js";
+import { auth } from "../../lib/auth.js";
 const router = Router();
 router.post("/", async (req, res) => {
-    const { project_id, user_token } = req.body;
-    try {
-        const decodeToken = await VerifyToken(user_token);
-        if (decodeToken.status == 200) {
-            const DeletingProject = await prisma.projects.delete({
-                where: {
-                    id: project_id
+    const { project_id, user_token, token } = req.body;
+    const clientToken = user_token || token;
+    let resolvedUserId = null;
+    if (clientToken && typeof clientToken === "string" && clientToken.trim() !== "") {
+        const decode = VerifyToken(clientToken);
+        if (decode.status === 200 && decode.message?.id) {
+            resolvedUserId = decode.message.id;
+        }
+    }
+    if (!resolvedUserId) {
+        try {
+            const session = await auth.api.getSession({
+                headers: fromNodeHeaders(req.headers)
+            });
+            if (session?.user?.email) {
+                const dbUser = await prisma.users.findUnique({
+                    where: { email: session.user.email }
+                });
+                if (dbUser?.id) {
+                    resolvedUserId = dbUser.id;
                 }
-            });
-            return res.status(200).json({
-                message: "project deleted successfully",
-                data: DeletingProject,
-                success: true
-            });
+            }
         }
-        else {
-            return res.status(400).json({
-                message: "Unauthorized User",
-                data: null,
-                success: false
-            });
+        catch {
+            // session check failed
         }
+    }
+    if (!resolvedUserId) {
+        return res.status(401).json({
+            message: "Unauthorized token. Please sign in again.",
+            data: null,
+            success: false
+        });
+    }
+    try {
+        const deletingProject = await prisma.projects.delete({
+            where: {
+                id: project_id
+            }
+        });
+        return res.status(200).json({
+            message: "Project deleted successfully",
+            data: deletingProject,
+            success: true
+        });
     }
     catch (error) {
         return res.status(500).json({
-            message: "internal server error",
+            message: "Internal server error deleting project.",
             error: error.message,
             data: null,
             success: false

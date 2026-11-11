@@ -7,7 +7,11 @@ export async function TransactionIDCheck(targetID) {
     });
     const TransactionID = await prisma.transaction.findFirst({
         where: {
-            transaction_id: targetID
+            OR: [
+                { transaction_id: targetID },
+                { transaction_id: `?id=${targetID}` },
+                { transaction_id: `?trx=${targetID}` }
+            ]
         }
     });
     if (TransactionID) {

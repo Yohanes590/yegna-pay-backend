@@ -66,7 +66,11 @@ router.post("/", async (req, res) => {
                 account_status: "active",
                 payment_plan: "free",
                 verified: false,
-                request_available: 200
+                request_available: Number(process.env.FREE_REQUESTS || 200),
+                free_requests_remaining: Number(process.env.FREE_REQUESTS || 200),
+                free_requests_used: 0,
+                paid_requests_balance: 0,
+                paid_requests_used: 0
             }
         });
 

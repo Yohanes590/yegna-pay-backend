@@ -12,5 +12,6 @@ export interface AwashReceiptData {
 }
 export declare function AwashbankReader(transactionData: {
     transaction_id: string;
+    transaction_url?: string;
 }): Promise<AwashReceiptData>;
 //# sourceMappingURL=Awash-bank.d.ts.map

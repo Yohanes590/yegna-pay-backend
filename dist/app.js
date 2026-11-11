@@ -1,5 +1,7 @@
 import Express from "express";
 import cors from 'cors';
+import { toNodeHandler } from "better-auth/node";
+import { auth } from "./lib/auth.js";
 // --------- importing routes  -------//    
 import thirdParty from "./routes/auth/third-party.js";
 import emailSignup from "./routes/auth/auth-email-signup.js";
@@ -16,14 +18,41 @@ import deleteProject from "./routes/user/delete-project.js";
 import editProject from "./routes/user/edit-project.js";
 import CroneJob from "./routes/crone-job.js";
 import BuyRequest from './routes/user/buy-request.js';
-import { toNodeHandler } from "better-auth/node";
+import qrImagesRouter from "./routes/user/qr-images.js";
 // ------------------------------- //
 const app = Express();
-app.use(cors({
-    origin: [process.env.CLIENT_URL, "https://admin-yegna-pay.vercel.app"],
+const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
+const defaultCors = cors({
+    origin: [clientUrl, "http://localhost:3000", "https://admin-yegna-pay.vercel.app"],
     credentials: true
-}));
+});
+const transactionCreateCors = cors({
+    origin: "*",
+    methods: ["POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-api-key", "X-Requested-With", "Accept"]
+});
+app.use((req, res, next) => {
+    const normalizedPath = req.path.replace(/\/+$/, "") || "/";
+    if (normalizedPath === "/api/transaction-create") {
+        return transactionCreateCors(req, res, next);
+    }
+    return defaultCors(req, res, next);
+});
+// Mount Better Auth directly on the backend
+app.all(["/api/auth", "/api/auth/*splat"], toNodeHandler(auth));
 app.use(Express.json());
+app.use(Express.urlencoded({ extended: true }));
+app.set('trust proxy', 1);
+app.use(RateLimiter);
+app.get("/", (req, res) => {
+    res.json({
+        message: "Yegna server is alive",
+        status: 200
+    });
+});
+app.get("/dashboard", (req, res) => {
+    res.redirect(`${clientUrl}/dashboard`);
+});
 app.use("/crone-job-db-activator", CroneJob);
 app.use("/auth/third-party", thirdParty);
 app.use("/auth/email-signup", emailSignup);
@@ -37,9 +66,9 @@ app.use("/user/create-project", userCreate);
 app.use("/user/delete-project", deleteProject);
 app.use("/user/edit-project", editProject);
 app.use("/user/buy-request", BuyRequest);
+app.use("/qr-images", qrImagesRouter);
 // user related route //
 app.use("/api/transaction-create", transactionCreate);
 app.use(errorMiddleware);
-app.use(RateLimiter);
 export default app;
 //# sourceMappingURL=app.js.map

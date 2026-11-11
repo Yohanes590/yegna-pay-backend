@@ -23,7 +23,8 @@ export async function CBECheckFunction(CBEData: any, shouldSave: boolean = true)
 
     if (normalizeName(ReceiverInformation) !== normalizeName(receiver_name_data)) {
         return {
-            message: "Receiver information does not matched",
+            status: "FAILED",
+            message: "Receiver information does not match the project recipient",
             error: normalizeName(ReceiverInformation) + " vs " + normalizeName(receiver_name_data),
             success: false,
             data: null
@@ -35,7 +36,8 @@ export async function CBECheckFunction(CBEData: any, shouldSave: boolean = true)
 
     if (cleanTransferred !== cleanPrice) {
         return {
-            message: "Transaction amount information does not match",
+            status: "FAILED",
+            message: "Transaction amount does not match the requested price",
             success: false,
             data: null,
             vs: transferredAmount + " vs " + price_amount
@@ -44,7 +46,8 @@ export async function CBECheckFunction(CBEData: any, shouldSave: boolean = true)
 
     if (isNaN(classicDate)) {
         return {
-            message: "Could not read date from receipt",
+            status: "INVALID",
+            message: "Could not read valid payment date from receipt",
             success: false,
             data: null
         }
@@ -52,6 +55,7 @@ export async function CBECheckFunction(CBEData: any, shouldSave: boolean = true)
 
     if (new Date(ReceiptDate).getTime() < new Date(ProjectDateRestriction).getTime()) {
         return {
+            status: "FAILED",
             message: "Payment deadline has passed",
             success: false,
             data: null
@@ -85,6 +89,7 @@ export async function CBECheckFunction(CBEData: any, shouldSave: boolean = true)
             }
 
             return {
+                status: "VERIFIED",
                 message: "Transaction Verified Successfully",
                 success: true,
                 data: TransactionData

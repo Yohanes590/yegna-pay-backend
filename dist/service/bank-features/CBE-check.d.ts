@@ -1,22 +1,33 @@
 export declare function CBECheckFunction(CBEData: any, shouldSave?: boolean): Promise<{
+    status: string;
     message: string;
     error: string;
     success: boolean;
     data: null;
     vs?: never;
 } | {
+    status: string;
     message: string;
     success: boolean;
     data: null;
     vs: string;
     error?: never;
 } | {
-    message: any;
+    status: string;
+    message: string;
     success: boolean;
     data: null;
     error?: never;
     vs?: never;
 } | {
+    message: any;
+    success: boolean;
+    data: null;
+    status?: never;
+    error?: never;
+    vs?: never;
+} | {
+    status: string;
     message: string;
     success: boolean;
     data: {

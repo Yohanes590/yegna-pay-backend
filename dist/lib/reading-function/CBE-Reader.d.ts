@@ -1,3 +1,4 @@
+import "dotenv/config";
 interface CBEReceiptData {
     payer: string;
     receiver: string;
@@ -9,6 +10,7 @@ interface CBEReceiptData {
 export declare function CBEReadingPDF(transactionData: {
     platform: string;
     transaction_id: string;
+    transaction_url?: string;
 }): Promise<{
     success: boolean;
     extractedData: CBEReceiptData;
@@ -16,7 +18,7 @@ export declare function CBEReadingPDF(transactionData: {
     error?: never;
 } | {
     success: boolean;
-    error: string;
+    error: any;
     extractedData?: never;
     isVerified?: never;
 }>;

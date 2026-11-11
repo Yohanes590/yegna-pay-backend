@@ -1,349 +1,383 @@
 import { Router } from "express";
+import multer from "multer";
 import { prisma } from "../../lib/prisma.js";
-import { CBEReadingPDF } from "../../lib/reading-function/CBE-Reader.js";
 import { ProjectAPIKey } from "../../service/ProjectAPICheck.js";
 import { SendWebHook } from "../../service/webhook-sender.js";
 import { TransactionLogSaved } from "../../service/transaction-services/transaction-log.js";
 import { TransactionIDCheck } from "../../service/transaction-services/transaction-id-check.js";
-import { NameNormalizer } from "../../service/name-normalizer.js";
-import { CBECheckFunction } from "../../service/bank-features/CBE-check.js";
-import { UserRequestAmount } from "../../lib/request-checker.js";
+import { UserRequestAmount, deductUserRequestCredit } from "../../lib/request-checker.js";
 import { UserIdFinder } from "../../lib/user-id-picker.js";
-import { BOAReadingPDF } from "../../lib/reading-function/BOA-reader.js";
-import { AwashbankReader } from "../../lib/reading-function/Awash-bank.js";
-import { SaveTransactionData } from "../../service/save-transaction.js";
+import { resolveBankAndTransaction, tryResolveExplicitBank } from "../../lib/bank-resolver.js";
+import { ALLOWED_RECEIPT_IMAGE_MIMES, MAX_RECEIPT_IMAGE_BYTES, extractQrContentFromImage, } from "../../lib/qr-extractor.js";
+import { persistQrReceiptImageAttempt } from "../../service/qr-image-service.js";
+import { fetchAndNormalizeBankReceipt, verifyAndSaveBankTransaction, } from "../../service/bank-features/unified-bank-check.js";
 const router = Router();
-router.post("/", async (req, res) => {
-    const APIkey = req.headers.authorization?.split(" ")[1];
-    const { price_amount, full_name, platform, transaction_id } = req.body;
-    try {
-        const transactionIdChecker = await TransactionIDCheck(transaction_id);
-        const userStatusCheck = await prisma.projects.findFirst({
-            where: {
-                api_sec_key: APIkey
-            },
-            include: {
-                user: true
-            }
-        });
-        if (userStatusCheck?.user.account_status != "active") {
-            return res.status(401).json({
-                "message": "This account has been banned. Please contact support.",
-                "success": false
+const receiptUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: MAX_RECEIPT_IMAGE_BYTES,
+        files: 1,
+    },
+    fileFilter: (_req, file, cb) => {
+        if (!ALLOWED_RECEIPT_IMAGE_MIMES.has((file.mimetype || "").toLowerCase())) {
+            cb(new Error("Unsupported image format. Please upload a PNG, JPG, or JPEG receipt image."));
+            return;
+        }
+        cb(null, true);
+    },
+});
+function handleOptionalReceiptUpload(req, res, next) {
+    if (!req.is("multipart/form-data")) {
+        return next();
+    }
+    receiptUpload.single("receipt_image")(req, res, (err) => {
+        if (err) {
+            const message = err?.code === "LIMIT_FILE_SIZE"
+                ? "Uploaded receipt image exceeds the 5MB size limit."
+                : err?.code === "LIMIT_UNEXPECTED_FILE"
+                    ? 'Unexpected file field. Please upload the receipt image using the "receipt_image" field.'
+                    : err?.message || "Invalid receipt image upload.";
+            return res.status(400).json({
+                status: 400,
+                success: false,
+                message,
             });
         }
-        else if (transactionIdChecker.status == false) {
+        return next();
+    });
+}
+router.post("/", handleOptionalReceiptUpload, async (req, res) => {
+    // 1. Guard against missing or empty payloads (allow multipart when fields/file were parsed)
+    const hasBody = Boolean(req.body && typeof req.body === "object" && Object.keys(req.body).length > 0);
+    if (!hasBody && !req.file) {
+        return res.status(400).json({
+            status: 400,
+            success: false,
+            message: "Request body is missing or empty. Please provide a valid JSON body or multipart form data."
+        });
+    }
+    // 2. Extract authorization header or API key
+    const authHeader = req.headers.authorization;
+    const APIkey = authHeader?.startsWith("Bearer ")
+        ? authHeader.split(" ")[1]
+        : (authHeader || req.body?.api_key || req.headers["x-api-key"]);
+    // 3. Safely extract body fields
+    const { price_amount, full_name = "", platform: rawPlatform, transaction_id: rawTransactionId, transaction_url: rawTransactionUrl, currency = "ETB" } = req.body || {};
+    // 4. Validate price_amount
+    if (price_amount === undefined ||
+        price_amount === null ||
+        price_amount === "" ||
+        isNaN(Number(price_amount)) ||
+        Number(price_amount) <= 0) {
+        return res.status(400).json({
+            status: 400,
+            success: false,
+            message: "Missing or invalid required field: price_amount. Must be a positive number."
+        });
+    }
+    const recordQrAttempt = async (attempt) => {
+        if (!req.file)
+            return null;
+        try {
+            let resolvedProjectId = attempt.projectId || null;
+            if (!resolvedProjectId && APIkey && typeof APIkey === "string" && APIkey.trim() !== "") {
+                const proj = await prisma.projects.findFirst({
+                    where: { api_sec_key: APIkey },
+                    select: { id: true },
+                });
+                resolvedProjectId = proj?.id || null;
+            }
+            if (!resolvedProjectId)
+                return null;
+            return await persistQrReceiptImageAttempt({
+                file: req.file,
+                projectId: resolvedProjectId,
+                status: attempt.status,
+                bankName: attempt.bankName,
+                extractedTransactionId: attempt.extractedTransactionId ?? null,
+                qrContent: attempt.qrContent ?? null,
+                transactionAmount: attempt.transactionAmount ?? null,
+                currency: attempt.currency || "ETB",
+                receiptDate: attempt.receiptDate ?? null,
+                failureReason: attempt.failureReason ?? null,
+                verifiedAt: attempt.verifiedAt ?? null,
+            });
+        }
+        catch (err) {
+            console.error("Failed to record QR receipt image attempt:", err?.message || err);
+            return null;
+        }
+    };
+    const inferredPreBank = tryResolveExplicitBank(typeof currency === "string" ? currency : "") ||
+        tryResolveExplicitBank(typeof rawPlatform === "string" ? rawPlatform : "") ||
+        "UNKNOWN";
+    // 4b. Option B: If a receipt_image file was uploaded, decode its QR code and use it as transaction_id
+    let effectiveTransactionId = rawTransactionId;
+    let effectiveTransactionUrl = rawTransactionUrl;
+    if (req.file) {
+        const qrResult = await extractQrContentFromImage(req.file.buffer, req.file.mimetype);
+        if (!qrResult.ok) {
+            await recordQrAttempt({
+                status: "FAILED",
+                bankName: inferredPreBank,
+                transactionAmount: Number(price_amount),
+                failureReason: qrResult.message,
+            });
+            return res.status(400).json({
+                status: 400,
+                success: false,
+                message: qrResult.message,
+            });
+        }
+        effectiveTransactionId = qrResult.content;
+        effectiveTransactionUrl = undefined;
+    }
+    // 5. Resolve target bank, validate domain if a URL was provided, and extract clean transaction ID
+    const resolvedBank = resolveBankAndTransaction({
+        platform: rawPlatform,
+        currency,
+        rawTransactionId: effectiveTransactionId,
+        rawTransactionUrl: effectiveTransactionUrl,
+    });
+    if (!resolvedBank.ok) {
+        if (req.file) {
+            await recordQrAttempt({
+                status: "FAILED",
+                bankName: inferredPreBank,
+                qrContent: typeof effectiveTransactionId === "string" ? effectiveTransactionId : null,
+                transactionAmount: Number(price_amount),
+                failureReason: resolvedBank.message,
+            });
+        }
+        return res.status(400).json({
+            status: 400,
+            success: false,
+            message: resolvedBank.message,
+        });
+    }
+    const { bankCode: finalPlatform, bankConfig, transactionId: finalTransactionId, transactionUrl: finalTransactionUrl, storedCurrency, } = resolvedBank;
+    // 6. Validate API Key
+    if (!APIkey || typeof APIkey !== "string" || APIkey.trim() === "") {
+        return res.status(401).json({
+            status: 401,
+            success: false,
+            message: "UNAUTHORIZED ACCESS! Missing API Key."
+        });
+    }
+    try {
+        const APICheck = await ProjectAPIKey(APIkey);
+        if (!APICheck.success) {
+            return res.status(401).json({
+                status: 401,
+                success: false,
+                message: APICheck.message || "Invalid API Key."
+            });
+        }
+        const userStatusCheck = await prisma.projects.findFirst({
+            where: { api_sec_key: APIkey },
+            include: { user: true }
+        });
+        if (!userStatusCheck) {
+            return res.status(404).json({
+                status: 404,
+                success: false,
+                message: "Associated project not found for the provided API key."
+            });
+        }
+        if (userStatusCheck.user?.account_status !== "active") {
+            return res.status(401).json({
+                status: 401,
+                success: false,
+                message: "This account has been banned. Please contact support."
+            });
+        }
+        const transactionIdChecker = await TransactionIDCheck(finalTransactionId);
+        if (transactionIdChecker.status === false) {
             const LoggedData = {
-                transaction_id: transaction_id,
+                transaction_id: finalTransactionId,
                 event: "DUPLICATED TRANSACTION ID",
                 message: "Duplicated transaction ID Detected",
                 transaction_status: "failed",
-                transaction_bank: platform
+                transaction_bank: finalPlatform
             };
-            const TransactionLogSave = await TransactionLogSaved(LoggedData);
-            if (!TransactionLogSave.success) {
-                return res.status(500).json({
-                    message: "Internal Server Error",
-                    success: false
-                });
-            }
-            else {
-                return res.status(400).json({
-                    message: TransactionLogSave.data,
-                    success: false
-                });
-            }
-        }
-        else if (platform == "CBE") {
-            if (!APIkey) {
-                return res.status(401).json({
-                    message: "UNAUTHORIZED ACCESS!",
-                    status: 401
-                });
-            }
-            const APICheck = await ProjectAPIKey(APIkey);
-            const userIdExtractor = await UserIdFinder(APIkey);
-            if (!userIdExtractor || !userIdExtractor.data) {
-                return res.status(400).json({
-                    message: "User ID not found",
-                    success: false
-                });
-            }
-            const userReqAmount = await UserRequestAmount(userIdExtractor.data);
-            if (!userReqAmount.success) {
-                return res.status(400).json({
-                    message: userReqAmount.message,
-                    success: userReqAmount.success
-                });
-            }
-            if (!APICheck.success) {
-                return res.status(401).json({
-                    message: APICheck.message,
-                    status: 401
-                });
-            }
-            const ReadingFunction = await CBEReadingPDF(req.body);
-            if (ReadingFunction?.success) {
-                if (!ReadingFunction.success || !('extractedData' in ReadingFunction) || !ReadingFunction.extractedData) {
-                    return res.status(400).json({
-                        success: false,
-                        message: "Failed to read receipt data or data is missing."
-                    });
-                }
-                const ReceiverInformation = ReadingFunction.extractedData?.receiver;
-                const receiver_name_data = await prisma.projects.findFirst({
-                    where: {
-                        api_sec_key: APIkey
-                    }
-                });
-                const inputName = NameNormalizer(full_name);
-                const extractedName = NameNormalizer(ReadingFunction.extractedData?.payer || "");
-                const transactionData = {
-                    inputName: inputName,
-                    extractedName: extractedName,
-                    ReceiverInformation: ReceiverInformation,
-                    receiver_name_data: receiver_name_data?.receiver_name,
-                    transferredAmount: ReadingFunction.extractedData?.transferredAmount,
-                    price_amount: price_amount,
-                    ProjectDateRestriction: receiver_name_data?.before_expires,
-                    ReceiptDate: ReadingFunction.extractedData?.paymentDateTime,
-                    targetID: transaction_id,
-                    projectId: receiver_name_data?.id
-                };
-                const CBEResponse = await CBECheckFunction(transactionData);
-                if (CBEResponse?.success === false) {
-                    return res.status(400).json({
-                        message: CBEResponse.message,
-                        success: false,
-                        data: CBEResponse?.data,
-                    });
-                }
-                else {
-                    const webhook = receiver_name_data?.call_back_url;
-                    SendWebHook(webhook, CBEResponse?.data);
-                    await prisma.users.update({
-                        where: {
-                            id: userIdExtractor?.data
-                        },
-                        data: {
-                            request_available: {
-                                decrement: 1
-                            }
-                        }
-                    });
-                    const LoggedData = {
-                        transaction_id: transaction_id,
-                        event: "TRANSACTION COMPLETED!",
-                        message: "Transaction created successfully",
-                        transaction_status: "success",
-                        transaction_bank: "CBE"
-                    };
-                    TransactionLogSaved(LoggedData);
-                    return res.status(200).json({
-                        message: CBEResponse.message,
-                        success: true,
-                        data: CBEResponse?.data,
-                    });
-                }
-            }
-            else {
-                return res.status(400).json({
-                    message: "Failed to process transaction",
-                });
-            }
-        }
-        else if (req.body.platform === "BOA") {
-            const BOAResponse = await BOAReadingPDF(req.body);
-            const clientPrice = req.body.price_amount;
-            if (!BOAResponse.receiverName) {
-                return res.status(401).json({
-                    status: 401,
-                    message: "invalid payment ID"
-                });
-            }
-            else {
-                const functionResponse = await BOAChecker(BOAResponse, APIkey, clientPrice);
-                return res.status(200).json(functionResponse);
-            }
-        }
-        else if (req.body.platform === "awash") {
-            const AwashResponse = await AwashbankReader(req.body);
-            if (!AwashResponse || !AwashResponse.receiverAccount) {
-                return res.status(401).json({
-                    status: 401,
-                    message: "invalid payment ID"
-                });
-            }
-            else {
-                const awashbankResponse = await AwashbankChecker(AwashResponse, APIkey, req.body.price_amount, req.body.transaction_id);
-                return res.status(200).json(awashbankResponse);
-            }
-        }
-        else {
+            await TransactionLogSaved(LoggedData);
+            await recordQrAttempt({
+                projectId: userStatusCheck.id,
+                status: "FAILED",
+                bankName: finalPlatform,
+                extractedTransactionId: finalTransactionId,
+                qrContent: typeof effectiveTransactionId === "string" ? effectiveTransactionId : null,
+                transactionAmount: Number(price_amount),
+                currency: storedCurrency,
+                failureReason: "Duplicate transaction ID detected.",
+            });
             return res.status(400).json({
-                message: "Unknown Platform to process transaction"
+                status: 400,
+                success: false,
+                message: "Duplicate transaction ID detected."
             });
         }
+        // 7. Check user request quota using the same CBE reference pipeline for every supported bank
+        const userIdExtractor = await UserIdFinder(APIkey);
+        if (!userIdExtractor || !userIdExtractor.data) {
+            await recordQrAttempt({
+                projectId: userStatusCheck.id,
+                status: "FAILED",
+                bankName: finalPlatform,
+                extractedTransactionId: finalTransactionId,
+                qrContent: typeof effectiveTransactionId === "string" ? effectiveTransactionId : null,
+                transactionAmount: Number(price_amount),
+                currency: storedCurrency,
+                failureReason: "User ID not found",
+            });
+            return res.status(400).json({
+                status: 400,
+                success: false,
+                message: "User ID not found",
+            });
+        }
+        const userReqAmount = await UserRequestAmount(userIdExtractor.data);
+        if (!userReqAmount.success) {
+            await recordQrAttempt({
+                projectId: userStatusCheck.id,
+                status: "FAILED",
+                bankName: finalPlatform,
+                extractedTransactionId: finalTransactionId,
+                qrContent: typeof effectiveTransactionId === "string" ? effectiveTransactionId : null,
+                transactionAmount: Number(price_amount),
+                currency: storedCurrency,
+                failureReason: userReqAmount.message || "Insufficient request quota.",
+            });
+            return res.status(400).json({
+                status: 400,
+                success: false,
+                message: userReqAmount.message,
+            });
+        }
+        // 8. Fetch and validate the receipt via the selected bank's reading function
+        const receiptOutcome = await fetchAndNormalizeBankReceipt(finalPlatform, bankConfig, finalTransactionId, finalTransactionUrl || undefined);
+        if (!receiptOutcome.ok) {
+            await recordQrAttempt({
+                projectId: userStatusCheck.id,
+                status: "FAILED",
+                bankName: finalPlatform,
+                extractedTransactionId: finalTransactionId,
+                qrContent: typeof effectiveTransactionId === "string" ? effectiveTransactionId : null,
+                transactionAmount: Number(price_amount),
+                currency: storedCurrency,
+                failureReason: receiptOutcome.message,
+            });
+            return res.status(400).json({
+                status: 400,
+                success: false,
+                transaction_status: receiptOutcome.transaction_status,
+                message: receiptOutcome.message,
+            });
+        }
+        // 9. Verify recipient, amount, date restriction, and persist transaction uniformly
+        const verificationResponse = await verifyAndSaveBankTransaction({
+            bankCode: finalPlatform,
+            receipt: receiptOutcome.receipt,
+            expectedReceiverName: userStatusCheck.receiver_name,
+            requestedPriceAmount: price_amount,
+            projectDateRestriction: userStatusCheck.before_expires,
+            transactionId: finalTransactionId,
+            projectId: userStatusCheck.id,
+            currency: storedCurrency,
+        });
+        if (!verificationResponse.success) {
+            await recordQrAttempt({
+                projectId: userStatusCheck.id,
+                status: "FAILED",
+                bankName: finalPlatform,
+                extractedTransactionId: finalTransactionId,
+                qrContent: typeof effectiveTransactionId === "string" ? effectiveTransactionId : null,
+                transactionAmount: Number(price_amount),
+                currency: storedCurrency,
+                receiptDate: receiptOutcome.receipt.paymentDateTime || null,
+                failureReason: verificationResponse.message,
+            });
+            return res.status(400).json({
+                status: 400,
+                success: false,
+                transaction_status: verificationResponse.status || "FAILED",
+                message: verificationResponse.message,
+                data: verificationResponse.data,
+            });
+        }
+        const deductResult = await deductUserRequestCredit(userIdExtractor.data);
+        if (!deductResult.success) {
+            await recordQrAttempt({
+                projectId: userStatusCheck.id,
+                status: "FAILED",
+                bankName: finalPlatform,
+                extractedTransactionId: finalTransactionId,
+                qrContent: typeof effectiveTransactionId === "string" ? effectiveTransactionId : null,
+                transactionAmount: Number(price_amount),
+                currency: storedCurrency,
+                receiptDate: receiptOutcome.receipt.paymentDateTime || null,
+                failureReason: deductResult.message || "Insufficient verification quota.",
+            });
+            return res.status(402).json({
+                status: 402,
+                success: false,
+                transaction_status: "FAILED",
+                message: deductResult.message || "Insufficient verification quota.",
+            });
+        }
+        let receiptImageUrl;
+        let responseData = verificationResponse.data;
+        if (req.file) {
+            const savedQrImage = await recordQrAttempt({
+                projectId: userStatusCheck.id,
+                status: "VERIFIED",
+                bankName: finalPlatform,
+                extractedTransactionId: finalTransactionId,
+                qrContent: typeof effectiveTransactionId === "string" ? effectiveTransactionId : null,
+                transactionAmount: verificationResponse.data?.transaction_amount ?? Number(price_amount),
+                currency: storedCurrency,
+                receiptDate: receiptOutcome.receipt.paymentDateTime || null,
+                verifiedAt: new Date(),
+            });
+            if (savedQrImage?.imageUrl) {
+                receiptImageUrl = savedQrImage.imageUrl;
+                responseData = {
+                    ...(verificationResponse.data || {}),
+                    receipt_image_url: receiptImageUrl,
+                };
+            }
+        }
+        const webhook = userStatusCheck.call_back_url;
+        if (webhook) {
+            SendWebHook(webhook, responseData);
+        }
+        await TransactionLogSaved({
+            transaction_id: finalTransactionId,
+            event: "TRANSACTION COMPLETED!",
+            message: receiptImageUrl
+                ? `Transaction created successfully [receipt_image: ${receiptImageUrl}]`
+                : "Transaction created successfully",
+            transaction_status: "success",
+            transaction_bank: finalPlatform,
+        });
+        return res.status(200).json({
+            status: 200,
+            success: true,
+            transaction_status: "VERIFIED",
+            message: verificationResponse.message,
+            ...(receiptImageUrl ? { receipt_image_url: receiptImageUrl } : {}),
+            data: responseData,
+        });
     }
     catch (error) {
+        console.error("Transaction create error:", error?.message || error);
         return res.status(500).json({
+            status: 500,
+            success: false,
             message: "Internal server error 500",
             error: error.message
         });
     }
 });
 export default router;
-async function BOAChecker(transactionData, APIKey, clientPrice) {
-    const ProjectDate = await prisma.projects.findFirst({
-        where: {
-            api_sec_key: APIKey
-        }
-    });
-    const PicProjectDate = ProjectDate?.before_expires;
-    const rawBoaDate = transactionData.transactionDate;
-    let parsedBoaDate = new Date(rawBoaDate);
-    if (isNaN(parsedBoaDate.getTime()) && rawBoaDate) {
-        const dateMatch = rawBoaDate.match(/\d{4}-\d{2}-\d{2}/);
-        if (dateMatch) {
-            parsedBoaDate = new Date(dateMatch);
-        }
-    }
-    const parsedProjectDate = new Date(PicProjectDate);
-    const projectReceiverName = ProjectDate?.receiver_name;
-    const normalizedProjectReceiverName = NameNormalizer(projectReceiverName || "");
-    const normalizedBOAReceiverName = NameNormalizer(transactionData.receiverName || "");
-    if (normalizedProjectReceiverName + "." !== normalizedBOAReceiverName) {
-        return {
-            success: false,
-            message: "Receiver account does not match the project receiver.",
-            data: normalizedBOAReceiverName + " does not match " + normalizedProjectReceiverName
-        };
-    }
-    else if (Number(clientPrice) != Number(transactionData.transferredAmount.split(" ")[1])) {
-        return {
-            success: false,
-            message: "Transferred amount does not match the requested amount.",
-        };
-    }
-    else if (parsedBoaDate > parsedProjectDate) {
-        return {
-            success: false,
-            message: "Transaction date exceeds project date restriction.",
-        };
-    }
-    else {
-        const LoggedData = {
-            transaction_id: String(transactionData.transactionReference) + "10104",
-            event: "TRANSACTION COMPLETED",
-            message: "Transaction Created Successfully",
-            transaction_status: "Success",
-            transaction_bank: "BOA",
-        };
-        await TransactionLogSaved(LoggedData);
-        const projectId = ProjectDate?.id || "";
-        const transactionDataToSave = {
-            transaction_amount: Number(transactionData.transferredAmount.split(" ")[1]),
-            transaction_id: String(transactionData.transactionReference) + "10104",
-            method: "link",
-            transaction_status: "verified",
-            from: transactionData.receiverName || "Unknown Payer",
-            to: projectReceiverName || "Unknown Receiver",
-            currency: "ETB",
-            risk_score: 0,
-            projectId: projectId
-        };
-        const SavedData = await SaveTransactionData(transactionDataToSave, projectId);
-        return {
-            success: SavedData.success,
-            message: SavedData.success ? "Transaction verified and saved successfully." : "Transaction verified but failed to save.",
-            data: SavedData
-        };
-    }
-}
-async function AwashbankChecker(transactionData, APIKey, clientPrice, transaction_id) {
-    const rawDate = transactionData?.transactionDate;
-    const projectData = await prisma.projects.findFirst({
-        where: {
-            api_sec_key: APIKey
-        }
-    });
-    if (!projectData) {
-        return {
-            success: false,
-            message: "Project not found for the provided API key."
-        };
-    }
-    else {
-        const projectDate = projectData.before_expires ? projectData.before_expires : ";";
-        const projectReceiverName = projectData.receiver_name;
-        const normalizedProjectReceiverName = NameNormalizer(projectReceiverName || "");
-        const normalizedAwashReceiverName = NameNormalizer(transactionData.receiverName || "");
-        const receiptAmount = transactionData.transferredAmount;
-        if (normalizedProjectReceiverName !== normalizedAwashReceiverName) {
-            return {
-                success: false,
-                message: "Receiver account does not match the project receiver.",
-                data: normalizedAwashReceiverName + " does not match " + normalizedProjectReceiverName
-            };
-        }
-        let parsedRawDate = new Date(rawDate);
-        if (isNaN(parsedRawDate.getTime()) && rawDate && rawDate.includes('M')) {
-            const parts = rawDate.split(' ');
-            if (parts.length >= 3) {
-                const datePart = parts;
-                const timePart = parts;
-                const ampm = parts;
-                let [hours, minutes, seconds] = timePart.split(':');
-                let h = parseInt(hours, 10);
-                if (ampm === 'PM' && h < 12)
-                    h += 12;
-                if (ampm === 'AM' && h === 12)
-                    h = 0;
-                parsedRawDate = new Date(`${datePart}T${String(h).padStart(2, '0')}:${minutes}:${seconds}`);
-            }
-        }
-        const parsedProjectDate = new Date(projectDate);
-        if (parsedRawDate < parsedProjectDate) {
-            return {
-                success: false,
-                message: "Transaction date exceeds project date restriction.",
-                date: rawDate + " is later than " + projectDate
-            };
-        }
-        else if (Number(clientPrice) != Number(receiptAmount.split(" ")[0])) {
-            return {
-                success: false,
-                message: "Transferred amount does not match the requested amount.",
-            };
-        }
-        else {
-            const projectId = projectData?.id || "";
-            const transactionDataToSave = {
-                transaction_amount: Number(transactionData.transferredAmount.split(" ")[0]),
-                transaction_id: String(transaction_id),
-                method: "link",
-                transaction_status: "verified",
-                from: transactionData.receiverName || "Unknown Payer",
-                to: projectReceiverName || "Unknown Receiver",
-                currency: "ETB",
-                risk_score: 0,
-                projectId: projectId
-            };
-            const SavedData = await SaveTransactionData(transactionDataToSave, projectId);
-            const LoggedData = {
-                transaction_id: transaction_id,
-                event: "TRANSACTION COMPLETED",
-                message: "Transaction Created Successfully",
-                transaction_status: "Success",
-                transaction_bank: "Awash Bank",
-            };
-            await TransactionLogSaved(LoggedData);
-            return {
-                success: SavedData.success,
-                message: SavedData.success ? "Transaction verified and saved successfully." : "Transaction verified but failed to save.",
-                data: SavedData
-            };
-        }
-    }
-}
 //# sourceMappingURL=api-transaction-create.js.map
