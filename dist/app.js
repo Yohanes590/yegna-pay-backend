@@ -21,9 +21,13 @@ import BuyRequest from './routes/user/buy-request.js';
 import qrImagesRouter from "./routes/user/qr-images.js";
 // ------------------------------- //
 const app = Express();
-const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
+const rawClientUrls = (process.env.CLIENT_URL || "http://localhost:3000")
+    .split(",")
+    .map((u) => u.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+const clientUrl = rawClientUrls[0] || "http://localhost:3000";
 const defaultCors = cors({
-    origin: [clientUrl, "http://localhost:3000", "https://admin-yegna-pay.vercel.app"],
+    origin: Array.from(new Set([...rawClientUrls, "http://localhost:3000", "https://admin-yegna-pay.vercel.app"])),
     credentials: true
 });
 const transactionCreateCors = cors({

@@ -3,12 +3,18 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { prisma } from "./prisma.js";
 
-const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
+const rawClientUrls = (process.env.CLIENT_URL || "http://localhost:3000")
+    .split(",")
+    .map((u) => u.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+
+const githubClientId = process.env.GITHUB_CLIENT_ID?.trim() || "";
+const githubClientSecret = process.env.GITHUB_CLIENT_SECRET?.trim() || "";
 
 const hasGithub = Boolean(
-    process.env.GITHUB_CLIENT_ID &&
-    process.env.GITHUB_CLIENT_SECRET &&
-    process.env.GITHUB_CLIENT_ID !== "github_client_id_placeholder"
+    githubClientId &&
+    githubClientSecret &&
+    githubClientId !== "github_client_id_placeholder"
 );
 
 export const auth = betterAuth({
@@ -16,19 +22,21 @@ export const auth = betterAuth({
         provider: "postgresql",
     }),
     secret: process.env.BETTER_AUTH_SECRET || process.env.SECRETE_KEY || "yegna-pay-auth-secret-key-production-32char",
-    baseURL: process.env.BETTER_AUTH_URL || `http://localhost:${process.env.PORT || 4000}`,
-    trustedOrigins: [
-        clientUrl,
-        "http://localhost:3000",
-        "https://admin-yegna-pay.vercel.app",
-    ],
+    baseURL: (process.env.BETTER_AUTH_URL || `http://localhost:${process.env.PORT || 4000}`).trim().replace(/\/+$/, ""),
+    trustedOrigins: Array.from(
+        new Set([
+            ...rawClientUrls,
+            "http://localhost:3000",
+            "https://admin-yegna-pay.vercel.app",
+        ])
+    ),
     emailAndPassword: {
         enabled: true,
     },
     socialProviders: {
         github: {
-            clientId: process.env.GITHUB_CLIENT_ID || "",
-            clientSecret: process.env.GITHUB_CLIENT_SECRET || "",
+            clientId: githubClientId,
+            clientSecret: githubClientSecret,
             enabled: hasGithub,
         },
     },
