@@ -14,5 +14,21 @@ export declare const auth: import("better-auth").Auth<{
             enabled: boolean;
         };
     };
+    account: any;
+    advanced: {
+        defaultCookieAttributes: {
+            sameSite: "none" | "lax";
+            secure: boolean;
+            partitioned: boolean;
+        };
+        crossSubDomainCookies?: {
+            enabled: true;
+            domain: string;
+        };
+        useSecureCookies: boolean;
+    };
+    onAPIError: {
+        errorURL: string;
+    };
 }>;
 //# sourceMappingURL=auth.d.ts.map

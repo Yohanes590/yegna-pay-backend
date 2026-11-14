@@ -2,10 +2,10 @@ export declare const UserCheckFunction: (userEmail: string) => Promise<{
     status: number;
     message: string;
     user: {
-        id: string;
-        full_name: string;
         email: string;
+        id: string;
         password: string | null;
+        full_name: string;
         avatar_url: string | null;
         Provider: string | null;
         account_status: string;

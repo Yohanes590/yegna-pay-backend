@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { prisma } from "../lib/prisma.js";
 import { uploadReceiptImageToCloudinary } from "../lib/cloudinary.js";
+import { compressReceiptImageForUpload } from "../src/utils/image-compressor.js";
 
 export const QR_RECEIPT_UPLOAD_DIR = path.resolve(process.cwd(), "uploads", "qr-receipts");
 
@@ -46,7 +47,12 @@ export async function persistQrReceiptImageAttempt(params: PersistQrReceiptImage
     let cloudinaryPublicId: string | null = null;
     let localFilePath: string | null = null;
 
-    const cloudUpload = await uploadReceiptImageToCloudinary(file.buffer, {
+    // Compress image into a new buffer before uploading (never mutating file.buffer)
+    const compressed = await compressReceiptImageForUpload(file.buffer, file.mimetype, {
+        expectedQrContent: qrContent,
+    });
+
+    const cloudUpload = await uploadReceiptImageToCloudinary(compressed.buffer, {
         bankCode: bankName || "BANK",
         transactionId: extractedTransactionId || recordId,
         projectId,
@@ -56,21 +62,21 @@ export async function persistQrReceiptImageAttempt(params: PersistQrReceiptImage
         imageUrl = cloudUpload.url;
         cloudinaryPublicId = cloudUpload.publicId;
     } else {
-        // Fallback: preserve the original uploaded image on disk and serve via access-controlled backend route
-        console.warn("Cloudinary upload unavailable, preserving QR image locally:", cloudUpload.error);
+        // Fallback: preserve the compressed receipt image on disk and serve via access-controlled backend route
+        console.warn("Cloudinary upload unavailable, preserving compressed QR image locally:", cloudUpload.error);
         fs.mkdirSync(QR_RECEIPT_UPLOAD_DIR, { recursive: true });
-        const ext = mimeToExt(file.mimetype);
+        const ext = mimeToExt(compressed.mimeType);
         const filename = `${recordId}.${ext}`;
         const absolutePath = path.join(QR_RECEIPT_UPLOAD_DIR, filename);
-        fs.writeFileSync(absolutePath, file.buffer);
+        fs.writeFileSync(absolutePath, compressed.buffer);
         localFilePath = filename;
         imageUrl = `/api/qr-images/file/${recordId}`;
     }
 
     const numericAmount =
         transactionAmount !== null &&
-        transactionAmount !== undefined &&
-        Number.isFinite(Number(transactionAmount))
+            transactionAmount !== undefined &&
+            Number.isFinite(Number(transactionAmount))
             ? Number(transactionAmount)
             : null;
 
@@ -81,7 +87,7 @@ export async function persistQrReceiptImageAttempt(params: PersistQrReceiptImage
             imageUrl,
             cloudinaryPublicId,
             localFilePath,
-            mimeType: file.mimetype || "image/png",
+            mimeType: compressed.mimeType || file.mimetype || "image/png",
             status,
             extractedTransactionId: extractedTransactionId || null,
             qrContent: qrContent || null,
@@ -96,4 +102,3 @@ export async function persistQrReceiptImageAttempt(params: PersistQrReceiptImage
 
     return record;
 }
-

@@ -1,2 +1,3 @@
-export declare const errorMiddleware: (err: any, req: any, res: any, next: any) => any;
+import type { NextFunction, Request, Response } from "express";
+export declare function errorMiddleware(err: any, _req: Request, res: Response, _next: NextFunction): Response<any, Record<string, any>> | undefined;
 //# sourceMappingURL=error.middleware.d.ts.map

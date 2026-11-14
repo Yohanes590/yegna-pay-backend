@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import { Router, type Request } from "express";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import { fromNodeHeaders } from "better-auth/node";
 import { prisma } from "../../lib/prisma.js";
 import { VerifyToken } from "../../lib/JWT-generate.js";
 import { auth } from "../../lib/auth.js";
 import { QR_RECEIPT_UPLOAD_DIR } from "../../service/qr-image-service.js";
+import { buildErrorResponse } from "../../src/utils/error-registry.js";
 
 const router = Router();
 
@@ -57,23 +58,22 @@ async function resolveAuthenticatedUserId(req: Request): Promise<string | null> 
 }
 
 // GET /qr-images/project/:projectId?status=VERIFIED|FAILED&page=1&limit=12&search=
-router.get("/project/:projectId", async (req, res) => {
+router.get("/project/:projectId", async (req: Request, res: Response, next: NextFunction) => {
+    try {
     const userId = await resolveAuthenticatedUserId(req);
     if (!userId) {
-        return res.status(401).json({
-            status: 401,
-            success: false,
+        const errPayload = buildErrorResponse("UNAUTHORIZED", {
             message: "Unauthorized. Please sign in to access project QR images.",
         });
+        return res.status(errPayload.status).json(errPayload);
     }
 
     const projectId = String(req.params.projectId || "").trim();
     if (!projectId) {
-        return res.status(400).json({
-            status: 400,
-            success: false,
+        const errPayload = buildErrorResponse("MISSING_REQUIRED_FIELD", {
             message: "Missing projectId parameter.",
         });
+        return res.status(errPayload.status).json(errPayload);
     }
 
     // Strict backend project ownership check: never expose another project's QR images
@@ -83,11 +83,10 @@ router.get("/project/:projectId", async (req, res) => {
     });
 
     if (!ownedProject) {
-        return res.status(403).json({
-            status: 403,
-            success: false,
+        const errPayload = buildErrorResponse("FORBIDDEN", {
             message: "Access denied. You do not have permission to view QR images for this project.",
         });
+        return res.status(errPayload.status).json(errPayload);
     }
 
     const rawStatus = typeof req.query.status === "string" ? req.query.status.trim().toUpperCase() : "";
@@ -168,22 +167,28 @@ router.get("/project/:projectId", async (req, res) => {
             message: err?.message || "Failed to retrieve project QR images.",
         });
     }
+    } catch (err) {
+        return next(err);
+    }
 });
 
 // GET /qr-images/file/:imageId (serves locally preserved fallback images with strict project ownership check)
-router.get("/file/:imageId", async (req, res) => {
+router.get("/file/:imageId", async (req: Request, res: Response, next: NextFunction) => {
+    try {
     const userId = await resolveAuthenticatedUserId(req);
     if (!userId) {
-        return res.status(401).json({
-            status: 401,
-            success: false,
+        const errPayload = buildErrorResponse("UNAUTHORIZED", {
             message: "Unauthorized access.",
         });
+        return res.status(errPayload.status).json(errPayload);
     }
 
     const imageId = String(req.params.imageId || "").trim();
     if (!imageId) {
-        return res.status(400).json({ status: 400, success: false, message: "Missing image ID." });
+        const errPayload = buildErrorResponse("MISSING_REQUIRED_FIELD", {
+            message: "Missing image ID.",
+        });
+        return res.status(errPayload.status).json(errPayload);
     }
 
     const record = await prisma.qrReceiptImage.findFirst({
@@ -200,11 +205,10 @@ router.get("/file/:imageId", async (req, res) => {
     });
 
     if (!record) {
-        return res.status(404).json({
-            status: 404,
-            success: false,
+        const errPayload = buildErrorResponse("PROJECT_NOT_FOUND", {
             message: "Receipt image not found or access denied.",
         });
+        return res.status(errPayload.status).json(errPayload);
     }
 
     if (record.localFilePath) {
@@ -221,11 +225,13 @@ router.get("/file/:imageId", async (req, res) => {
         return res.redirect(record.imageUrl);
     }
 
-    return res.status(404).json({
-        status: 404,
-        success: false,
+    const errPayload = buildErrorResponse("PROJECT_NOT_FOUND", {
         message: "Original receipt image file could not be located.",
     });
+    return res.status(errPayload.status).json(errPayload);
+    } catch (err) {
+        return next(err);
+    }
 });
 
 export default router;

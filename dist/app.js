@@ -21,6 +21,7 @@ import BuyRequest from './routes/user/buy-request.js';
 import qrImagesRouter from "./routes/user/qr-images.js";
 // ------------------------------- //
 const app = Express();
+app.set('trust proxy', 1);
 const rawClientUrls = (process.env.CLIENT_URL || "http://localhost:3000")
     .split(",")
     .map((u) => u.trim().replace(/\/+$/, ""))
@@ -46,9 +47,11 @@ app.use((req, res, next) => {
 app.all(["/api/auth", "/api/auth/*splat"], toNodeHandler(auth));
 app.use(Express.json());
 app.use(Express.urlencoded({ extended: true }));
-app.set('trust proxy', 1);
 app.use(RateLimiter);
 app.get("/", (req, res) => {
+    if (req.query.error) {
+        return res.redirect(`${clientUrl}/sign-in?error=${encodeURIComponent(String(req.query.error))}`);
+    }
     res.json({
         message: "Yegna server is alive",
         status: 200

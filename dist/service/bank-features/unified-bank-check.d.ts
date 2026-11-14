@@ -46,6 +46,9 @@ export interface VerifyAndSaveTransactionResult {
     data: Record<string, any> | null;
     error?: string;
     vs?: string;
+    errorKey?: string;
+    isDuplicate?: boolean;
+    httpStatus?: number;
 }
 export declare function verifyAndSaveBankTransaction(input: VerifyAndSaveTransactionInput, shouldSave?: boolean): Promise<VerifyAndSaveTransactionResult>;
 //# sourceMappingURL=unified-bank-check.d.ts.map

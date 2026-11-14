@@ -1,0 +1,129 @@
+{
+  "CLIENT_ERRORS": {
+    "INVALID_REQUEST": {
+      "code": "YP_009enfe",
+      "message": "Invalid request payload",
+      "status": 400
+    },
+    "MISSING_REQUIRED_FIELD": {
+      "code": "YP_01AbcD",
+      "message": "A required field is missing",
+      "status": 400
+    },
+    "INVALID_AMOUNT": {
+      "code": "YP_02xYzA",
+      "message": "Invalid transaction amount",
+      "status": 400
+    },
+    "INVALID_PLATFORM_OR_URL": {
+      "code": "YP_05KlMn",
+      "message": "Unsupported bank platform or invalid transaction URL",
+      "status": 400
+    },
+    "INVALID_RECEIPT_IMAGE": {
+      "code": "YP_06OpQr",
+      "message": "Invalid receipt image upload",
+      "status": 400
+    },
+    "QR_CODE_NOT_FOUND": {
+      "code": "YP_07StUv",
+      "message": "No QR code detected in the uploaded receipt image",
+      "status": 400
+    },
+    "INVALID_DATE_RANGE": {
+      "code": "YP_08WxYz",
+      "message": "Invalid date format or eligibility configuration",
+      "status": 400
+    },
+    "UNAUTHORIZED": {
+      "code": "YP_09CdEf",
+      "message": "Unauthorized access",
+      "status": 401
+    },
+    "ACCOUNT_BANNED": {
+      "code": "YP_10GhIj",
+      "message": "This account has been banned",
+      "status": 401
+    },
+    "FORBIDDEN": {
+      "code": "YP_11KmNp",
+      "message": "Access denied",
+      "status": 403
+    },
+    "PROJECT_NOT_FOUND": {
+      "code": "YP_12QrSt",
+      "message": "Associated project not found",
+      "status": 404
+    },
+    "RATE_LIMIT_EXCEEDED": {
+      "code": "YP_13UvWx",
+      "message": "Too many requests. Rate limit exceeded",
+      "status": 429
+    }
+  },
+  "APPLICATION_ERRORS": {
+    "DUPLICATE_TRANSACTION": {
+      "code": "YP_03DeFg",
+      "message": "This transaction has already been verified",
+      "status": 409
+    },
+    "INSUFFICIENT_QUOTA": {
+      "code": "YP_14YzAb",
+      "message": "Insufficient verification quota",
+      "status": 402
+    },
+    "BANK_RECEIPT_FETCH_FAILED": {
+      "code": "YP_15CdEf",
+      "message": "Unable to fetch or parse bank receipt",
+      "status": 400
+    },
+    "RECEIVER_MISMATCH": {
+      "code": "YP_16GhJk",
+      "message": "Receiver information does not match the project recipient",
+      "status": 400
+    },
+    "AMOUNT_MISMATCH": {
+      "code": "YP_17MnPq",
+      "message": "Transaction amount does not match the requested price",
+      "status": 400
+    },
+    "INVALID_RECEIPT_DATE": {
+      "code": "YP_18RsTu",
+      "message": "Could not read valid payment date from receipt",
+      "status": 400
+    },
+    "TRANSACTION_DATE_EXPIRED": {
+      "code": "YP_19VwXy",
+      "message": "Transaction date is outside the allowed verification period",
+      "status": 400
+    },
+    "VERIFICATION_FAILED": {
+      "code": "YP_20ZaBc",
+      "message": "Transaction verification failed",
+      "status": 400
+    }
+  },
+  "SERVER_ERRORS": {
+    "INTERNAL_SERVER_ERROR": {
+      "code": "YP_04GhIj",
+      "message": "Internal Server Error",
+      "status": 500
+    },
+    "IMAGE_PROCESSING_ERROR": {
+      "code": "YP_21DeFg",
+      "message": "Failed to process receipt image",
+      "status": 500
+    },
+    "CLOUD_UPLOAD_ERROR": {
+      "code": "YP_22HiJk",
+      "message": "Failed to upload receipt image to cloud storage",
+      "status": 502
+    },
+    "DATABASE_ERROR": {
+      "code": "YP_23LmNo",
+      "message": "Internal Server Error",
+      "status": 500
+    }
+  }
+}
+

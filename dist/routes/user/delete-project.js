@@ -3,8 +3,9 @@ import { fromNodeHeaders } from "better-auth/node";
 import { prisma } from "../../lib/prisma.js";
 import { VerifyToken } from "../../lib/JWT-generate.js";
 import { auth } from "../../lib/auth.js";
+import { buildErrorResponse } from "../../src/utils/error-registry.js";
 const router = Router();
-router.post("/", async (req, res) => {
+router.post("/", async (req, res, next) => {
     const { project_id, user_token, token } = req.body;
     const clientToken = user_token || token;
     let resolvedUserId = null;
@@ -33,11 +34,10 @@ router.post("/", async (req, res) => {
         }
     }
     if (!resolvedUserId) {
-        return res.status(401).json({
+        const errPayload = buildErrorResponse("UNAUTHORIZED", {
             message: "Unauthorized token. Please sign in again.",
-            data: null,
-            success: false
         });
+        return res.status(errPayload.status).json(errPayload);
     }
     try {
         const deletingProject = await prisma.projects.delete({
@@ -52,12 +52,7 @@ router.post("/", async (req, res) => {
         });
     }
     catch (error) {
-        return res.status(500).json({
-            message: "Internal server error deleting project.",
-            error: error.message,
-            data: null,
-            success: false
-        });
+        return next(error);
     }
 });
 export default router;

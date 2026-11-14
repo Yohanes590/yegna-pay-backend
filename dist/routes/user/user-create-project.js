@@ -4,8 +4,9 @@ import { VerifyToken } from "../../lib/JWT-generate.js";
 import { prisma } from "../../lib/prisma.js";
 import { auth } from "../../lib/auth.js";
 import { normalizeProjectEligibilityDate } from "../../service/bank-features/unified-bank-check.js";
+import { buildErrorResponse } from "../../src/utils/error-registry.js";
 const router = Router();
-router.post("/", async (req, res) => {
+router.post("/", async (req, res, next) => {
     const { token } = req.body;
     const project_name = req.body.project_name;
     const api_sec = req.body.api_sec || req.body.apiKey;
@@ -19,18 +20,17 @@ router.post("/", async (req, res) => {
         "";
     const paymentReceiverName = req.body.paymentReceiverName || req.body.receiver_name || "";
     if (!project_name || !api_sec || !paymentReceiverName) {
-        return res.status(400).json({
+        const errPayload = buildErrorResponse("MISSING_REQUIRED_FIELD", {
             message: "Please fill in all required credentials!",
-            success: false,
         });
+        return res.status(errPayload.status).json(errPayload);
     }
     const normalizedDate = normalizeProjectEligibilityDate(typeof rawEligibilityDate === "string" ? rawEligibilityDate : "");
     if (!normalizedDate.valid) {
-        return res.status(400).json({
-            status: 400,
-            success: false,
+        const errPayload = buildErrorResponse("INVALID_DATE_RANGE", {
             message: "Invalid transaction eligibility start date. Please provide a valid date (YYYY-MM-DD).",
         });
+        return res.status(errPayload.status).json(errPayload);
     }
     const expiresDate = normalizedDate.normalized;
     let resolvedUserId = null;
@@ -61,11 +61,10 @@ router.post("/", async (req, res) => {
         }
     }
     if (!resolvedUserId) {
-        return res.status(401).json({
-            status: 401,
-            success: false,
-            message: "Unauthorized token. Please sign in again."
+        const errPayload = buildErrorResponse("UNAUTHORIZED", {
+            message: "Unauthorized token. Please sign in again.",
         });
+        return res.status(errPayload.status).json(errPayload);
     }
     try {
         await prisma.projects.create({
@@ -91,11 +90,7 @@ router.post("/", async (req, res) => {
         });
     }
     catch (err) {
-        return res.status(500).json({
-            status: 500,
-            success: false,
-            message: err.message || "Failed to create project in database."
-        });
+        return next(err);
     }
 });
 export default router;

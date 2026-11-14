@@ -1,7 +1,31 @@
-import { prisma } from '../lib/prisma.js'
-import { Prisma } from '@prisma/client'
+import { prisma } from "../lib/prisma.js";
+import { Prisma } from "@prisma/client";
 
-export async function SaveTransactionData(transactionData: any, projectID: string) {
+export interface SaveTransactionResult {
+    message: string;
+    success: boolean;
+    isDuplicate?: boolean;
+    isDatabaseError?: boolean;
+    errorKey?: string;
+}
+
+function isTransactionUniqueConstraint(error: Prisma.PrismaClientKnownRequestError): boolean {
+    const target = error.meta?.target;
+    if (Array.isArray(target)) {
+        return target.some((item) => String(item).toLowerCase().includes("transaction_id"));
+    }
+    if (typeof target === "string") {
+        return target.toLowerCase().includes("transaction_id");
+    }
+    // Prisma PostgreSQL adapter may omit meta.target or put constraint name in message
+    const msg = (error.message || "").toLowerCase();
+    return msg.includes("transaction_id");
+}
+
+export async function SaveTransactionData(
+    transactionData: any,
+    projectID: string
+): Promise<SaveTransactionResult> {
     try {
         await prisma.transaction.create({
             data: {
@@ -13,17 +37,29 @@ export async function SaveTransactionData(transactionData: any, projectID: strin
                 to: transactionData.to,
                 currency: transactionData.currency || "ETB",
                 risk_score: transactionData.risk_score,
-                projectId: projectID
+                projectId: projectID,
             },
-        })
+        });
 
-        return { message: "success", success: true }
-
+        return { message: "success", success: true };
     } catch (error: any) {
-        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-            return { message: "Transaction ID already exists. Duplicated transaction detected.", success: false }
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+            if (isTransactionUniqueConstraint(error)) {
+                return {
+                    message: "This transaction has already been verified",
+                    success: false,
+                    isDuplicate: true,
+                    errorKey: "DUPLICATE_TRANSACTION",
+                };
+            }
         }
 
-        return { message: error.message || "Failed to save transaction", success: false }
+        console.error("[SaveTransactionData Error]", error?.stack || error?.message || error);
+        return {
+            message: "Internal Server Error",
+            success: false,
+            isDatabaseError: true,
+            errorKey: "DATABASE_ERROR",
+        };
     }
 }

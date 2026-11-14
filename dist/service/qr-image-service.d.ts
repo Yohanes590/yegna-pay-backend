@@ -13,11 +13,12 @@ export interface PersistQrReceiptImageParams {
     verifiedAt?: Date | null | undefined;
 }
 export declare function persistQrReceiptImageAttempt(params: PersistQrReceiptImageParams): Promise<{
-    projectId: string;
     id: string;
     createdAt: Date;
+    projectId: string;
     currency: string;
     status: string;
+    mimeType: string;
     bankName: string;
     extractedTransactionId: string | null;
     qrContent: string | null;
@@ -28,6 +29,5 @@ export declare function persistQrReceiptImageAttempt(params: PersistQrReceiptIma
     imageUrl: string;
     cloudinaryPublicId: string | null;
     localFilePath: string | null;
-    mimeType: string;
 }>;
 //# sourceMappingURL=qr-image-service.d.ts.map

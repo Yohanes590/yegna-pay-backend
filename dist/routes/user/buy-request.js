@@ -6,6 +6,7 @@ import { auth } from "../../lib/auth.js";
 import { getBillingConfig } from "../../lib/billing-config.js";
 import { getBankConfig, normalizeBankIdentifier } from "../../lib/bank-registry.js";
 import { extractCleanTransactionId } from "../../lib/cbe-domain.js";
+import { buildErrorResponse } from "../../src/utils/error-registry.js";
 const router = Router();
 function normalizeName(name) {
     return name.toLowerCase().trim().replace(/\s+/g, " ");
@@ -49,15 +50,14 @@ async function resolveAuthenticatedUser(req) {
     return user;
 }
 // GET /user/buy-request - Fetch essential billing summary and purchase history
-router.get("/", async (req, res) => {
+router.get("/", async (req, res, next) => {
     try {
         const user = await resolveAuthenticatedUser(req);
         if (!user) {
-            return res.status(401).json({
-                status: 401,
-                success: false,
-                message: "Unauthorized. Please sign in to view billing."
+            const errPayload = buildErrorResponse("UNAUTHORIZED", {
+                message: "Unauthorized. Please sign in to view billing.",
             });
+            return res.status(errPayload.status).json(errPayload);
         }
         const config = getBillingConfig();
         const freeRemaining = user.free_requests_remaining ?? 0;
@@ -85,24 +85,18 @@ router.get("/", async (req, res) => {
         });
     }
     catch (err) {
-        console.error("Fetch billing error:", err?.message || err);
-        return res.status(500).json({
-            status: 500,
-            success: false,
-            message: "Failed to retrieve billing information."
-        });
+        return next(err);
     }
 });
 // POST /user/buy-request - Purchase additional verification requests
-router.post("/", async (req, res) => {
+router.post("/", async (req, res, next) => {
     try {
         const user = await resolveAuthenticatedUser(req);
         if (!user) {
-            return res.status(401).json({
-                status: 401,
-                success: false,
-                message: "Unauthorized user! Please log in."
+            const errPayload = buildErrorResponse("UNAUTHORIZED", {
+                message: "Unauthorized user! Please log in.",
             });
+            return res.status(errPayload.status).json(errPayload);
         }
         const { requestAmount, transaction_id, platform } = req.body;
         // 1. Validate requestAmount
@@ -300,13 +294,7 @@ router.post("/", async (req, res) => {
         });
     }
     catch (dbError) {
-        console.error("Purchase processing error:", dbError);
-        return res.status(500).json({
-            status: 500,
-            success: false,
-            message: "Internal server error processing credit purchase.",
-            error_details: dbError.message
-        });
+        return next(dbError);
     }
 });
 export default router;

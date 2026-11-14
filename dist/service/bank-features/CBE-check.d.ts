@@ -20,13 +20,6 @@ export declare function CBECheckFunction(CBEData: any, shouldSave?: boolean): Pr
     error?: never;
     vs?: never;
 } | {
-    message: any;
-    success: boolean;
-    data: null;
-    status?: never;
-    error?: never;
-    vs?: never;
-} | {
     status: string;
     message: string;
     success: boolean;
@@ -41,6 +34,13 @@ export declare function CBECheckFunction(CBEData: any, shouldSave?: boolean): Pr
         currency: string;
         risk_score: number;
     };
+    error?: never;
+    vs?: never;
+} | {
+    message: any;
+    success: boolean;
+    data: null;
+    status?: never;
     error?: never;
     vs?: never;
 }>;

@@ -266,6 +266,8 @@ export async function verifyAndSaveBankTransaction(input, shouldSave = true) {
             error: `${normalizedReceiptReceiver} vs ${normalizedExpectedReceiver}`,
             success: false,
             data: null,
+            errorKey: "RECEIVER_MISMATCH",
+            httpStatus: 400,
         };
     }
     const cleanTransferred = parseNumericAmount(receipt.transferredAmount);
@@ -277,6 +279,8 @@ export async function verifyAndSaveBankTransaction(input, shouldSave = true) {
             success: false,
             data: null,
             vs: `${receipt.transferredAmount} vs ${requestedPriceAmount}`,
+            errorKey: "AMOUNT_MISMATCH",
+            httpStatus: 400,
         };
     }
     const parsedReceiptDate = parseBankReceiptDate(receipt.paymentDateTime);
@@ -286,6 +290,8 @@ export async function verifyAndSaveBankTransaction(input, shouldSave = true) {
             message: "Could not read valid payment date from receipt",
             success: false,
             data: null,
+            errorKey: "INVALID_RECEIPT_DATE",
+            httpStatus: 400,
         };
     }
     const restriction = parseProjectEligibilityStartDate(projectDateRestriction);
@@ -295,6 +301,8 @@ export async function verifyAndSaveBankTransaction(input, shouldSave = true) {
             message: "Project transaction eligibility date configuration is invalid.",
             success: false,
             data: null,
+            errorKey: "INVALID_DATE_RANGE",
+            httpStatus: 400,
         };
     }
     if (restriction.hasRestriction &&
@@ -305,6 +313,8 @@ export async function verifyAndSaveBankTransaction(input, shouldSave = true) {
             message: "Transaction date is outside the allowed verification period for this project.",
             success: false,
             data: null,
+            errorKey: "TRANSACTION_DATE_EXPIRED",
+            httpStatus: 400,
         };
     }
     const TransactionData = {
@@ -322,11 +332,24 @@ export async function verifyAndSaveBankTransaction(input, shouldSave = true) {
         if (shouldSave) {
             const dbSaveResult = await SaveTransactionData(TransactionData, projectId);
             if (dbSaveResult && dbSaveResult.success === false) {
+                if (dbSaveResult.isDuplicate) {
+                    return {
+                        status: "FAILED",
+                        message: dbSaveResult.message,
+                        success: false,
+                        data: null,
+                        errorKey: "DUPLICATE_TRANSACTION",
+                        isDuplicate: true,
+                        httpStatus: 409,
+                    };
+                }
                 return {
                     status: "FAILED",
-                    message: dbSaveResult.message,
+                    message: "Internal Server Error",
                     success: false,
                     data: null,
+                    errorKey: dbSaveResult.errorKey || "DATABASE_ERROR",
+                    httpStatus: 500,
                 };
             }
         }
@@ -338,11 +361,14 @@ export async function verifyAndSaveBankTransaction(input, shouldSave = true) {
         };
     }
     catch (err) {
+        console.error("[verifyAndSaveBankTransaction Error]", err?.stack || err?.message || err);
         return {
             status: "FAILED",
-            message: err?.message || "Failed to save verified transaction",
+            message: "Internal Server Error",
             success: false,
             data: null,
+            errorKey: "DATABASE_ERROR",
+            httpStatus: 500,
         };
     }
 }
