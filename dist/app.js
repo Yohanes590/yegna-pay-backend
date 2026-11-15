@@ -27,8 +27,23 @@ const rawClientUrls = (process.env.CLIENT_URL || "http://localhost:3000")
     .map((u) => u.trim().replace(/\/+$/, ""))
     .filter(Boolean);
 const clientUrl = rawClientUrls[0] || "http://localhost:3000";
+const allowedOrigins = Array.from(new Set([
+    ...rawClientUrls,
+    "http://localhost:3000",
+    "https://admin-yegna-pay.vercel.app",
+    "https://yegna-pay.vercel.app",
+]));
 const defaultCors = cors({
-    origin: Array.from(new Set([...rawClientUrls, "http://localhost:3000", "https://admin-yegna-pay.vercel.app"])),
+    origin: (origin, callback) => {
+        if (!origin)
+            return callback(null, true);
+        if (allowedOrigins.includes(origin) ||
+            origin.endsWith(".vercel.app") ||
+            origin.endsWith(".yonas.cloud")) {
+            return callback(null, true);
+        }
+        return callback(null, true);
+    },
     credentials: true
 });
 const transactionCreateCors = cors({
@@ -42,6 +57,52 @@ app.use((req, res, next) => {
         return transactionCreateCors(req, res, next);
     }
     return defaultCors(req, res, next);
+});
+// Intercept Better Auth OAuth callback redirect to attach session token for cross-domain clients
+app.use((req, res, next) => {
+    const isAuthCallback = req.path.startsWith("/api/auth/callback");
+    if (isAuthCallback) {
+        const originalWriteHead = res.writeHead.bind(res);
+        res.writeHead = function (statusCode, ...args) {
+            try {
+                const location = res.getHeader("location");
+                if (location && typeof location === "string" && (statusCode === 302 || statusCode === 301)) {
+                    const setCookieHeader = res.getHeader("set-cookie");
+                    let sessionToken = null;
+                    if (setCookieHeader) {
+                        const cookieStr = Array.isArray(setCookieHeader) ? setCookieHeader.join("; ") : String(setCookieHeader);
+                        const match = cookieStr.match(/(?:better-auth\.session_token|__Secure-better-auth\.session_token)=([^;]+)/);
+                        if (match && match[1]) {
+                            const rawPart = decodeURIComponent(match[1]).split(".")[0];
+                            if (rawPart)
+                                sessionToken = rawPart;
+                        }
+                    }
+                    if (sessionToken) {
+                        try {
+                            const parsedUrl = new URL(location, "http://localhost");
+                            if (!parsedUrl.searchParams.has("token")) {
+                                parsedUrl.searchParams.set("token", sessionToken);
+                                const newLocation = location.startsWith("http")
+                                    ? parsedUrl.toString()
+                                    : `${parsedUrl.pathname}${parsedUrl.search}`;
+                                res.setHeader("location", newLocation);
+                            }
+                        }
+                        catch {
+                            const sep = location.includes("?") ? "&" : "?";
+                            res.setHeader("location", `${location}${sep}token=${encodeURIComponent(sessionToken)}`);
+                        }
+                    }
+                }
+            }
+            catch (err) {
+                console.error("Callback location rewrite error:", err);
+            }
+            return originalWriteHead(statusCode, ...args);
+        };
+    }
+    next();
 });
 // Mount Better Auth directly on the backend
 app.all(["/api/auth", "/api/auth/*splat"], toNodeHandler(auth));

@@ -9,16 +9,31 @@ const router = Router();
 
 router.post("/", async (req, res) => {
     try {
-        const clientToken = req.body?.token;
+        const clientToken = req.body?.token || req.headers.authorization?.replace(/^Bearer\s+/i, "");
         let userEmail: string | null = null;
         let userId: string | null = null;
 
         // 1. Try decoding legacy / bearer JWT if provided
         if (clientToken && typeof clientToken === "string" && clientToken.trim() !== "") {
-            const decodeToken = VerifyToken(clientToken);
+            const trimmedToken = clientToken.trim();
+            const decodeToken = VerifyToken(trimmedToken);
             if (decodeToken.status === 200 && decodeToken.message?.email) {
                 userEmail = decodeToken.message.email;
                 userId = decodeToken.message.id;
+            } else {
+                // 1b. Check if clientToken is a Better Auth session database token
+                try {
+                    const dbSession = await prisma.session.findUnique({
+                        where: { token: trimmedToken },
+                        include: { user: true }
+                    });
+                    if (dbSession && dbSession.expiresAt > new Date() && dbSession.user?.email) {
+                        userEmail = dbSession.user.email;
+                        userId = dbSession.user.id;
+                    }
+                } catch {
+                    // Ignore DB lookup error and proceed to session cookie check
+                }
             }
         }
 

@@ -33,6 +33,8 @@ export const auth = betterAuth({
             ...rawClientUrls,
             "http://localhost:3000",
             "https://admin-yegna-pay.vercel.app",
+            "https://yegna-pay.vercel.app",
+            "https://*.vercel.app",
         ])
     ),
     emailAndPassword: {
