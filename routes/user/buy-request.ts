@@ -5,14 +5,15 @@ import { prisma } from "../../lib/prisma.js";
 import { auth } from "../../lib/auth.js";
 import { getBillingConfig } from "../../lib/billing-config.js";
 import { getBankConfig, normalizeBankIdentifier } from "../../lib/bank-registry.js";
-import { extractCleanTransactionId } from "../../lib/cbe-domain.js";
 import { buildErrorResponse } from "../../src/utils/error-registry.js";
+import { createNotification } from "../../lib/notification-service.js";
+import {
+    normalizeBankReceiptName,
+    parseNumericAmount,
+    parseBankReceiptDate,
+} from "../../service/bank-features/unified-bank-check.js";
 
 const router = Router();
-
-function normalizeName(name: string): string {
-    return name.toLowerCase().trim().replace(/\s+/g, " ");
-}
 
 async function resolveAuthenticatedUser(req: any) {
     const authHeader = req.headers.authorization;
@@ -21,10 +22,23 @@ async function resolveAuthenticatedUser(req: any) {
     let userId: string | null = null;
 
     if (clientToken && typeof clientToken === "string" && clientToken.trim() !== "") {
-        const decoded = VerifyToken(clientToken);
+        const decoded = VerifyToken(clientToken.trim());
         if (decoded.status === 200 && decoded.message?.email) {
             userEmail = decoded.message.email;
             userId = decoded.message.id;
+        } else {
+            try {
+                const dbSession = await prisma.session.findUnique({
+                    where: { token: clientToken.trim() },
+                    include: { user: true },
+                });
+                if (dbSession && dbSession.expiresAt > new Date() && dbSession.user?.email) {
+                    userEmail = dbSession.user.email;
+                    userId = dbSession.user.id;
+                }
+            } catch {
+                // ignore
+            }
         }
     }
 
@@ -44,7 +58,7 @@ async function resolveAuthenticatedUser(req: any) {
 
     if (!userEmail) return null;
 
-    let user = await prisma.users.findUnique({
+    const user = await prisma.users.findUnique({
         where: { email: userEmail },
         include: {
             revenues: {
@@ -108,19 +122,9 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
             return res.status(errPayload.status).json(errPayload);
         }
 
-        const { requestAmount, transaction_id, platform } = req.body;
+        const { transaction_id, platform } = req.body;
 
-        // 1. Validate requestAmount
-        const count = parseInt(String(requestAmount), 10);
-        if (isNaN(count) || count < 1) {
-            return res.status(400).json({
-                status: 400,
-                success: false,
-                message: "Invalid request amount. Minimum purchase is 1 request."
-            });
-        }
-
-        // 2. Validate transaction reference & calculate pricing
+        // 1. Validate transaction reference
         if (!transaction_id || typeof transaction_id !== "string" || transaction_id.trim() === "") {
             return res.status(400).json({
                 status: 400,
@@ -130,9 +134,19 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
         }
 
         const config = getBillingConfig();
-        const expectedPrice = Number((count * config.costPerRequest).toFixed(2));
-        const bankConfig = getBankConfig(platform || config.billingMethod);
+        const requestedBank = platform ? normalizeBankIdentifier(platform) : normalizeBankIdentifier(config.billingMethod);
+        const bankConfig = getBankConfig(requestedBank);
         const paymentPlatform = bankConfig.identifier;
+
+        // Validate that requested billing rail matches configured billing method
+        const configuredNormalized = normalizeBankIdentifier(config.billingMethod);
+        if (paymentPlatform !== configuredNormalized) {
+            return res.status(400).json({
+                status: 400,
+                success: false,
+                message: `Invalid billing method. Payment must be made using ${config.billingMethod}.`
+            });
+        }
 
         const rawTxInput = transaction_id.trim();
         let transactionUrl = "";
@@ -159,7 +173,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
             });
         }
 
-        // 3. Prevent reuse of already claimed transaction ID (anti-replay check)
+        // 2. Prevent reuse of already claimed transaction ID (anti-replay check)
         const [existingRevenue, existingTransaction] = await Promise.all([
             prisma.revenue.findFirst({
                 where: {
@@ -180,80 +194,115 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
         ]);
 
         if (existingRevenue || existingTransaction) {
+            // Trigger duplicate notification to inform the user
+            await createNotification({
+                userId: user.id,
+                type: "security",
+                title: "Duplicate Transaction Detected",
+                description: `Transaction reference "${cleanTransactionId}" has already been verified or used.`,
+                longDetails: `Anti-replay blocked attempt to reuse transaction ID ${cleanTransactionId}. Duplicate transactions are strictly rejected.`
+            });
+
             return res.status(400).json({
                 status: 400,
                 success: false,
-                message: "Duplicate payment transaction! This transaction ID has already been claimed."
+                message: "Duplicate payment transaction! This transaction ID has already been verified or used."
             });
         }
 
-        // 4. Verify actual payment transaction against dynamic banking rails
+        // 3. Extract and validate actual payment information from the bank receipt
         let payerName = "Verified Customer";
+        let actualPaidAmount: number | null = null;
+        let receiptDateStr: string | null = null;
+        let receiverNameOnReceipt: string | null = null;
+        let receiverAccountOnReceipt: string | null = null;
+        let receiptStatus: string | null = null;
 
         if (paymentPlatform === "AWAS_BANK") {
-            const awashReceipt = await bankConfig.reader({
-                transaction_id: cleanTransactionId,
-                ...(transactionUrl ? { transaction_url: transactionUrl } : {})
-            });
-            if (!awashReceipt || !awashReceipt.receiverAccount) {
+            let awashReceipt: any;
+            try {
+                awashReceipt = await bankConfig.reader({
+                    transaction_id: cleanTransactionId,
+                    ...(transactionUrl ? { transaction_url: transactionUrl } : {})
+                });
+            } catch (fetchErr: any) {
                 return res.status(400).json({
                     status: 400,
                     success: false,
-                    message: "Failed to verify Awash Bank payment receipt. Transaction not found."
+                    message: fetchErr?.message || "Failed to verify Awash Bank payment receipt. Transaction not found or unreachable."
                 });
             }
 
-            const cleanTransferred = Number(String(awashReceipt.transferredAmount).replace(/[^0-9.]/g, ""));
-            if (cleanTransferred < expectedPrice) {
+            if (!awashReceipt || (!awashReceipt.transferredAmount && !awashReceipt.receiverAccount && !awashReceipt.receiverName)) {
                 return res.status(400).json({
                     status: 400,
                     success: false,
-                    message: `Transferred amount (${cleanTransferred} ETB) is less than required (${expectedPrice} ETB for ${count} requests).`
+                    message: "Failed to verify Awash Bank payment receipt. Transaction details could not be extracted."
                 });
             }
 
-            payerName = awashReceipt.senderName || awashReceipt.receiverName || payerName;
+            actualPaidAmount = parseNumericAmount(awashReceipt.transferredAmount);
+            receiptDateStr = awashReceipt.transactionDate || null;
+            receiverNameOnReceipt = awashReceipt.receiverName || null;
+            receiverAccountOnReceipt = awashReceipt.receiverAccount || null;
+            receiptStatus = awashReceipt.status || null;
+            payerName = awashReceipt.senderName || payerName;
 
         } else if (paymentPlatform === "BOA") {
-            const boaReceipt = await bankConfig.reader({
-                transaction_id: cleanTransactionId,
-                ...(transactionUrl ? { transaction_url: transactionUrl } : {})
-            });
-            if (!boaReceipt || !boaReceipt.receiverAccount) {
+            let boaReceipt: any;
+            try {
+                boaReceipt = await bankConfig.reader({
+                    transaction_id: cleanTransactionId,
+                    ...(transactionUrl ? { transaction_url: transactionUrl } : {})
+                });
+            } catch (fetchErr: any) {
                 return res.status(400).json({
                     status: 400,
                     success: false,
-                    message: "Failed to verify Bank of Abyssinia payment receipt. Transaction not found."
+                    message: fetchErr?.message || "Failed to verify Bank of Abyssinia payment receipt."
                 });
             }
 
-            const cleanTransferred = Number(String(boaReceipt.transferredAmount).replace(/[^0-9.]/g, ""));
-            if (cleanTransferred < expectedPrice) {
+            if (!boaReceipt || (!boaReceipt.transferredAmount && !boaReceipt.receiverAccount && !boaReceipt.receiverName)) {
                 return res.status(400).json({
                     status: 400,
                     success: false,
-                    message: `Transferred amount (${cleanTransferred} ETB) is less than required (${expectedPrice} ETB for ${count} requests).`
+                    message: "Failed to verify Bank of Abyssinia payment receipt."
                 });
             }
 
-            payerName = boaReceipt.senderName || boaReceipt.receiverName || payerName;
+            actualPaidAmount = parseNumericAmount(boaReceipt.transferredAmount);
+            receiptDateStr = boaReceipt.transactionDate || null;
+            receiverNameOnReceipt = boaReceipt.receiverName || null;
+            receiverAccountOnReceipt = boaReceipt.receiverAccount || null;
+            receiptStatus = boaReceipt.status || null;
+            payerName = boaReceipt.senderName || payerName;
 
         } else {
-            // Default to Commercial Bank of Ethiopia (CBE)
-            const ReadingReceipt = await bankConfig.reader({
-                transaction_id: cleanTransactionId,
-                ...(transactionUrl ? { transaction_url: transactionUrl } : {})
-            });
-
-            if (!ReadingReceipt || !ReadingReceipt.success || !ReadingReceipt.extractedData) {
+            // CBE
+            let cbeReceipt: any;
+            try {
+                cbeReceipt = await bankConfig.reader({
+                    transaction_id: cleanTransactionId,
+                    ...(transactionUrl ? { transaction_url: transactionUrl } : {})
+                });
+            } catch (fetchErr: any) {
                 return res.status(400).json({
                     status: 400,
                     success: false,
-                    message: ReadingReceipt?.error || "Failed to verify transaction receipt with Commercial Bank of Ethiopia."
+                    message: fetchErr?.message || "Failed to verify Commercial Bank of Ethiopia payment receipt."
                 });
             }
 
-            if (!ReadingReceipt.isVerified) {
+            if (!cbeReceipt || !cbeReceipt.success || !cbeReceipt.extractedData) {
+                return res.status(400).json({
+                    status: 400,
+                    success: false,
+                    message: cbeReceipt?.error || "Failed to verify transaction receipt with Commercial Bank of Ethiopia."
+                });
+            }
+
+            if (!cbeReceipt.isVerified) {
                 return res.status(400).json({
                     status: 400,
                     success: false,
@@ -261,27 +310,85 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
                 });
             }
 
-            const receiverOnReceipt = normalizeName(ReadingReceipt.extractedData.receiver || "");
-            const configuredAccountName = normalizeName(config.accountUserName);
+            actualPaidAmount = parseNumericAmount(cbeReceipt.extractedData.transferredAmount);
+            receiptDateStr = cbeReceipt.extractedData.paymentDateTime || null;
+            receiverNameOnReceipt = cbeReceipt.extractedData.receiver || null;
+            payerName = cbeReceipt.extractedData.payer || payerName;
+        }
 
-            if (!receiverOnReceipt.includes(configuredAccountName) && !configuredAccountName.includes(receiverOnReceipt)) {
+        // 4. Validate Receipt Conditions
+
+        // 4a. Check transaction status
+        if (receiptStatus && /failed|declined|rejected|cancelled/i.test(receiptStatus)) {
+            return res.status(400).json({
+                status: 400,
+                success: false,
+                message: "Transaction status on receipt indicates a failed or incomplete payment."
+            });
+        }
+
+        // 4b. Actual transaction amount must be greater than 0
+        if (!actualPaidAmount || isNaN(actualPaidAmount) || actualPaidAmount <= 0) {
+            return res.status(400).json({
+                status: 400,
+                success: false,
+                message: "Could not extract or verify a valid payment amount from the receipt."
+            });
+        }
+
+        // 4c. Account holder name matches ACCOUNT_USER_NAME
+        const normalizedReceiver = normalizeBankReceiptName(receiverNameOnReceipt);
+        const normalizedExpected = normalizeBankReceiptName(config.accountUserName);
+
+        if (
+            normalizedReceiver &&
+            !normalizedReceiver.includes(normalizedExpected) &&
+            !normalizedExpected.includes(normalizedReceiver)
+        ) {
+            return res.status(400).json({
+                status: 400,
+                success: false,
+                message: `Payment receiver mismatch. Payment was transferred to "${receiverNameOnReceipt}", expected "${config.accountUserName}".`
+            });
+        }
+
+        // 4d. Destination account matches ACCOUNT_NUMBER, where available in the receipt
+        if (receiverAccountOnReceipt && config.accountNumber) {
+            const cleanReceiptAcc = receiverAccountOnReceipt.replace(/[^0-9]/g, "");
+            const cleanConfigAcc = config.accountNumber.replace(/[^0-9]/g, "");
+            if (cleanReceiptAcc && cleanConfigAcc && !cleanReceiptAcc.includes(cleanConfigAcc) && !cleanConfigAcc.includes(cleanReceiptAcc)) {
                 return res.status(400).json({
                     status: 400,
                     success: false,
-                    message: `Payment receiver mismatch. Payment was transferred to "${ReadingReceipt.extractedData.receiver}", expected "${config.accountUserName}".`
+                    message: `Destination account mismatch. Payment went to "${receiverAccountOnReceipt}", expected "${config.accountNumber}".`
                 });
             }
+        }
 
-            const cleanTransferred = Number(String(ReadingReceipt.extractedData.transferredAmount).replace(/[^0-9.]/g, ""));
-            if (cleanTransferred < expectedPrice) {
-                return res.status(400).json({
-                    status: 400,
-                    success: false,
-                    message: `Transferred amount (${cleanTransferred} ETB) is less than required (${expectedPrice} ETB for ${count} requests).`
-                });
+        // 4e. Transaction date is valid according to BEFORE_DATE
+        if (config.beforeDate && receiptDateStr) {
+            const cutoffDate = parseBankReceiptDate(config.beforeDate);
+            const txDate = parseBankReceiptDate(receiptDateStr);
+            if (!isNaN(cutoffDate.getTime()) && !isNaN(txDate.getTime())) {
+                if (txDate.getTime() < cutoffDate.getTime()) {
+                    return res.status(400).json({
+                        status: 400,
+                        success: false,
+                        message: `Transaction date (${txDate.toISOString().slice(0, 10)}) is earlier than allowed cutoff date (${config.beforeDate}).`
+                    });
+                }
             }
+        }
 
-            payerName = ReadingReceipt.extractedData.payer || payerName;
+        // 5. Billing calculation: Purchased Requests = Payment Amount / REQUEST_CURRENCY
+        const purchasedRequests = Math.floor(Math.round((actualPaidAmount / config.costPerRequest) * 10000) / 10000);
+
+        if (purchasedRequests < 1) {
+            return res.status(400).json({
+                status: 400,
+                success: false,
+                message: `Verified payment amount (${actualPaidAmount} ETB) is less than the price of 1 request (${config.costPerRequest} ETB).`
+            });
         }
 
         // 6. Verification confirmed -> Atomically credit requests and save purchase history
@@ -291,8 +398,8 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
                     id: cleanTransactionId,
                     user_id: user.id,
                     payer_name: payerName,
-                    paid_requests: count,
-                    amount: expectedPrice,
+                    paid_requests: purchasedRequests,
+                    amount: actualPaidAmount,
                     currency: config.currency,
                     status: "verified",
                     method: paymentPlatform,
@@ -303,22 +410,31 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
             const updatedUser = await tx.users.update({
                 where: { id: user.id },
                 data: {
-                    paid_requests_balance: { increment: count },
-                    request_available: { increment: count }
+                    paid_requests_balance: { increment: purchasedRequests },
+                    request_available: { increment: purchasedRequests }
                 }
             });
 
             return { revenueRecord, updatedUser };
         });
 
+        // Trigger success notification
+        await createNotification({
+            userId: user.id,
+            type: "success",
+            title: "Requests Purchased Successfully",
+            description: `Verified payment of ${actualPaidAmount} ETB. ${purchasedRequests} requests credited to your account.`,
+            longDetails: `Payment reference ${cleanTransactionId} verified via ${paymentPlatform}. Rate: ${config.costPerRequest} ETB/req. New purchased balance: ${result.updatedUser.paid_requests_balance}.`
+        });
+
         return res.status(200).json({
             status: 200,
             success: true,
-            message: `Successfully purchased ${count} verification requests!`,
+            message: `Successfully verified payment of ${actualPaidAmount} ETB! Added ${purchasedRequests} paid requests.`,
             data: {
                 transaction_id: cleanTransactionId,
-                requests_credited: count,
-                amount_paid: expectedPrice,
+                requests_credited: purchasedRequests,
+                amount_paid: actualPaidAmount,
                 currency: config.currency,
                 paid_requests_balance: result.updatedUser.paid_requests_balance,
                 free_requests_remaining: result.updatedUser.free_requests_remaining,

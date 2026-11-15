@@ -6,6 +6,7 @@ export interface BillingConfig {
     accountUserName: string;
     billingMethod: string;
     accountNumber: string;
+    beforeDate: string;
     currency: string;
 }
 
@@ -19,6 +20,7 @@ export function getBillingConfig(): BillingConfig {
     const accountUserName = (process.env.ACCOUNT_USER_NAME || "YOHANES MULUGETA KASSAW").replace(/^['"]|['"]$/g, "").trim();
     const billingMethod = (process.env.BILLING_METHOD || "AWAS_BANK").replace(/^['"]|['"]$/g, "").trim();
     const accountNumber = (process.env.ACCOUNT_NUMBER || "013201568261800").replace(/^['"]|['"]$/g, "").trim();
+    const beforeDate = (process.env.BEFORE_DATE || "11/15/2026").replace(/^['"]|['"]$/g, "").trim();
 
     return {
         costPerRequest,
@@ -26,7 +28,7 @@ export function getBillingConfig(): BillingConfig {
         accountUserName,
         billingMethod,
         accountNumber,
+        beforeDate,
         currency: "ETB"
     };
 }
-

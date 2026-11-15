@@ -5,6 +5,7 @@ export interface BillingConfig {
     accountUserName: string;
     billingMethod: string;
     accountNumber: string;
+    beforeDate: string;
     currency: string;
 }
 export declare function getBillingConfig(): BillingConfig;

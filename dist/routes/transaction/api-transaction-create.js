@@ -13,6 +13,7 @@ import { persistQrReceiptImageAttempt } from "../../service/qr-image-service.js"
 import { fetchAndNormalizeBankReceipt, verifyAndSaveBankTransaction, } from "../../service/bank-features/unified-bank-check.js";
 import { AppError } from "../../src/utils/app-error.js";
 import { buildErrorResponse } from "../../src/utils/error-registry.js";
+import { createNotification } from "../../lib/notification-service.js";
 const router = Router();
 const receiptUpload = multer({
     storage: multer.memoryStorage(),
@@ -198,6 +199,15 @@ router.post("/", handleOptionalReceiptUpload, async (req, res, next) => {
                 transaction_bank: finalPlatform,
             };
             await TransactionLogSaved(LoggedData);
+            if (userStatusCheck?.user?.id) {
+                await createNotification({
+                    userId: userStatusCheck.user.id,
+                    type: "security",
+                    title: "Duplicate Transaction Detected",
+                    description: `Transaction ID "${finalTransactionId}" on ${finalPlatform} has already been verified and was rejected.`,
+                    longDetails: `Transaction ID: ${finalTransactionId}\nBank Platform: ${finalPlatform}\nProject: ${userStatusCheck.project_name}\nStatus: REJECTED\nReason: Duplicate transaction ID replay detected. This transaction was previously verified and cannot be reused.`,
+                });
+            }
             await recordQrAttempt({
                 projectId: userStatusCheck.id,
                 status: "FAILED",
@@ -288,6 +298,15 @@ router.post("/", handleOptionalReceiptUpload, async (req, res, next) => {
                     transaction_status: "failed",
                     transaction_bank: finalPlatform,
                 });
+                if (userStatusCheck?.user?.id) {
+                    await createNotification({
+                        userId: userStatusCheck.user.id,
+                        type: "security",
+                        title: "Duplicate Transaction Detected",
+                        description: `Transaction ID "${finalTransactionId}" on ${finalPlatform} has already been verified and was rejected.`,
+                        longDetails: `Transaction ID: ${finalTransactionId}\nBank Platform: ${finalPlatform}\nProject: ${userStatusCheck.project_name}\nStatus: REJECTED\nReason: Duplicate transaction ID replay detected.`,
+                    });
+                }
             }
             await recordQrAttempt({
                 projectId: userStatusCheck.id,

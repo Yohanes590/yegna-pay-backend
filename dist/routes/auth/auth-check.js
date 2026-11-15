@@ -4,6 +4,7 @@ import { fromNodeHeaders } from "better-auth/node";
 import { JWTGenerate, VerifyToken } from "../../lib/JWT-generate.js";
 import { prisma } from "../../lib/prisma.js";
 import { auth } from "../../lib/auth.js";
+import { ensureWelcomeNotification } from "../../lib/notification-service.js";
 const router = Router();
 router.post("/", async (req, res) => {
     try {
@@ -165,6 +166,7 @@ router.post("/", async (req, res) => {
                 message: "This account is disabled. Please contact support."
             });
         }
+        await ensureWelcomeNotification(fetchEmail.id).catch(() => { });
         const issuedToken = JWTGenerate({
             id: fetchEmail.id,
             email: fetchEmail.email

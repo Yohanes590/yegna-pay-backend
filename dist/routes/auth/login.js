@@ -2,6 +2,7 @@ import { Router } from "express";
 import { JWTGenerate, VerifyToken } from "../../lib/JWT-generate.js";
 import { prisma } from "../../lib/prisma.js";
 import bcrypt from "bcryptjs";
+import { ensureWelcomeNotification } from "../../lib/notification-service.js";
 const router = Router();
 router.post("/", async (req, res) => {
     const FetchUserEmail = await prisma.users.findUnique({
@@ -35,6 +36,7 @@ router.post("/", async (req, res) => {
         else if (FetchUserEmail.Provider == "gmail") {
             const DecodePassword = await bcrypt.compare(req.body.password, FetchUserEmail.password);
             if (DecodePassword) {
+                await ensureWelcomeNotification(FetchUserEmail.id).catch(() => { });
                 return res.json({
                     status: 200,
                     message: "Login Success",

@@ -9,7 +9,9 @@ export interface AwashReceiptData {
     vat?: string;
     senderName?: string;
     beneficiaryBank?: string;
+    status?: string;
 }
+export declare function parseAwashReceipt(htmlContent: string): AwashReceiptData;
 export declare function AwashbankReader(transactionData: {
     transaction_id: string;
     transaction_url?: string;

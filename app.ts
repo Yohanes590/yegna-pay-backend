@@ -20,6 +20,8 @@ import editProject from "./routes/user/edit-project.js"
 import CroneJob from "./routes/crone-job.js"
 import BuyRequest from './routes/user/buy-request.js'
 import qrImagesRouter from "./routes/user/qr-images.js"
+import notificationsRouter from "./routes/user/notifications.js"
+import publicConfigRouter from "./routes/config/public.js"
 // ------------------------------- //
 
 
@@ -144,12 +146,17 @@ app.use("/callback/github", githubCallback)
 app.use("/auth/login", login)
 
 
+app.use("/api/config/public", publicConfigRouter)
+app.use("/config/public", publicConfigRouter)
+
 // user related route
 app.use("/user/create-project", userCreate)
 app.use("/user/delete-project", deleteProject)
 app.use("/user/edit-project", editProject)
 app.use("/user/buy-request", BuyRequest)
 app.use("/qr-images", qrImagesRouter)
+app.use("/api/user/notifications", notificationsRouter)
+app.use("/user/notifications", notificationsRouter)
 // user related route //
 
 app.use("/api/transaction-create", transactionCreate)
