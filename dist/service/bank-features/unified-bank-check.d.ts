@@ -1,4 +1,4 @@
-import type { BankConfig } from "../../lib/bank-registry.js";
+import type { BankConfig } from "../../lib/bank-registry.types.js";
 import type { SupportedBankCode } from "../../lib/bank-resolver.js";
 export interface NormalizedBankReceipt {
     receiverName: string;
@@ -28,7 +28,8 @@ export declare function parseProjectEligibilityStartDate(rawRestriction?: string
     startDate: Date | null;
     valid: boolean;
 };
-export declare function fetchAndNormalizeBankReceipt(bankCode: SupportedBankCode, bankConfig: BankConfig, transactionId: string, transactionUrl?: string): Promise<FetchReceiptOutcome>;
+export declare function fetchAndNormalizeBankReceipt(_bankCode: SupportedBankCode, bankConfig: BankConfig, transactionId: string, transactionUrl?: string): Promise<FetchReceiptOutcome>;
+export type ProjectVerificationMode = "detailed" | "payment_only";
 export interface VerifyAndSaveTransactionInput {
     bankCode: SupportedBankCode;
     receipt: NormalizedBankReceipt;
@@ -38,6 +39,7 @@ export interface VerifyAndSaveTransactionInput {
     transactionId: string;
     projectId: string;
     currency?: string;
+    verificationMode?: ProjectVerificationMode;
 }
 export interface VerifyAndSaveTransactionResult {
     status: "VERIFIED" | "FAILED" | "INVALID";

@@ -1,5 +1,6 @@
-import type { BankConfig } from "../../lib/bank-registry.js";
+import type { BankConfig } from "../../lib/bank-registry.types.js";
 import type { SupportedBankCode } from "../../lib/bank-resolver.js";
+import { fetchAndNormalizeViaAdapter } from "../../modules/verification/verification.service.js";
 import { SaveTransactionData } from "../save-transaction.js";
 
 export interface NormalizedBankReceipt {
@@ -249,82 +250,19 @@ export function parseProjectEligibilityStartDate(
 }
 
 export async function fetchAndNormalizeBankReceipt(
-    bankCode: SupportedBankCode,
+    _bankCode: SupportedBankCode,
     bankConfig: BankConfig,
     transactionId: string,
     transactionUrl?: string
 ): Promise<FetchReceiptOutcome> {
-    let readerResult: any;
-    try {
-        readerResult = await bankConfig.reader({
-            transaction_id: transactionId,
-            ...(transactionUrl ? { transaction_url: transactionUrl } : {}),
-        });
-    } catch (err: any) {
-        return {
-            ok: false,
-            transaction_status: "FAILED",
-            message: err?.message || `Could not verify transaction with ${bankConfig.displayName}.`,
-        };
-    }
-
-    if (bankCode === "CBE") {
-        if (!readerResult || !readerResult.success || !readerResult.extractedData) {
-            return {
-                ok: false,
-                transaction_status: "FAILED",
-                message:
-                    readerResult?.error ||
-                    `Could not verify transaction with ${bankConfig.displayName}.`,
-            };
-        }
-        if (!readerResult.isVerified) {
-            return {
-                ok: false,
-                transaction_status: "INVALID",
-                message: "Transaction reference does not match CBE receipt reference.",
-            };
-        }
-
-        const { extractedData } = readerResult;
-        return {
-            ok: true,
-            receipt: {
-                receiverName: extractedData.receiver || "",
-                payerName: extractedData.payer || "",
-                transferredAmount: extractedData.transferredAmount ?? "",
-                paymentDateTime: extractedData.paymentDateTime || "",
-                referenceNo: extractedData.referenceNo || transactionId,
-            },
-        };
-    }
-
-    // Awash Bank & Bank of Abyssinia return parsed receipt structs directly from Playwright scrapers
-    if (
-        !readerResult ||
-        (!readerResult.receiverName &&
-            !readerResult.receiverAccount &&
-            !readerResult.transferredAmount &&
-            !readerResult.transactionReference)
-    ) {
-        return {
-            ok: false,
-            transaction_status: "FAILED",
-            message: `Could not verify transaction with ${bankConfig.displayName}.`,
-        };
-    }
-
-    return {
-        ok: true,
-        receipt: {
-            receiverName: readerResult.receiverName || "",
-            payerName: readerResult.senderName || "",
-            transferredAmount: readerResult.transferredAmount ?? "",
-            paymentDateTime: readerResult.transactionDate || "",
-            referenceNo: readerResult.transactionReference || transactionId,
-        },
-    };
+    return fetchAndNormalizeViaAdapter(
+        bankConfig,
+        transactionId,
+        ...(transactionUrl ? [transactionUrl] : [])
+    );
 }
+
+export type ProjectVerificationMode = "detailed" | "payment_only";
 
 export interface VerifyAndSaveTransactionInput {
     bankCode: SupportedBankCode;
@@ -335,6 +273,7 @@ export interface VerifyAndSaveTransactionInput {
     transactionId: string;
     projectId: string;
     currency?: string;
+    verificationMode?: ProjectVerificationMode;
 }
 
 export interface VerifyAndSaveTransactionResult {
@@ -362,21 +301,26 @@ export async function verifyAndSaveBankTransaction(
         transactionId,
         projectId,
         currency = "ETB",
+        verificationMode = "detailed",
     } = input;
 
-    const normalizedReceiptReceiver = normalizeBankReceiptName(receipt.receiverName);
-    const normalizedExpectedReceiver = normalizeBankReceiptName(expectedReceiverName);
+    const paymentOnly = verificationMode === "payment_only";
 
-    if (!normalizedExpectedReceiver || normalizedReceiptReceiver !== normalizedExpectedReceiver) {
-        return {
-            status: "FAILED",
-            message: "Receiver information does not match the project recipient",
-            error: `${normalizedReceiptReceiver} vs ${normalizedExpectedReceiver}`,
-            success: false,
-            data: null,
-            errorKey: "RECEIVER_MISMATCH",
-            httpStatus: 400,
-        };
+    if (!paymentOnly) {
+        const normalizedReceiptReceiver = normalizeBankReceiptName(receipt.receiverName);
+        const normalizedExpectedReceiver = normalizeBankReceiptName(expectedReceiverName);
+
+        if (!normalizedExpectedReceiver || normalizedReceiptReceiver !== normalizedExpectedReceiver) {
+            return {
+                status: "FAILED",
+                message: "Receiver information does not match the project recipient",
+                error: `${normalizedReceiptReceiver} vs ${normalizedExpectedReceiver}`,
+                success: false,
+                data: null,
+                errorKey: "RECEIVER_MISMATCH",
+                httpStatus: 400,
+            };
+        }
     }
 
     const cleanTransferred = parseNumericAmount(receipt.transferredAmount);
@@ -394,43 +338,45 @@ export async function verifyAndSaveBankTransaction(
         };
     }
 
-    const parsedReceiptDate = parseBankReceiptDate(receipt.paymentDateTime);
-    if (isNaN(parsedReceiptDate.getTime())) {
-        return {
-            status: "INVALID",
-            message: "Could not read valid payment date from receipt",
-            success: false,
-            data: null,
-            errorKey: "INVALID_RECEIPT_DATE",
-            httpStatus: 400,
-        };
-    }
+    if (!paymentOnly) {
+        const parsedReceiptDate = parseBankReceiptDate(receipt.paymentDateTime);
+        if (isNaN(parsedReceiptDate.getTime())) {
+            return {
+                status: "INVALID",
+                message: "Could not read valid payment date from receipt",
+                success: false,
+                data: null,
+                errorKey: "INVALID_RECEIPT_DATE",
+                httpStatus: 400,
+            };
+        }
 
-    const restriction = parseProjectEligibilityStartDate(projectDateRestriction);
-    if (!restriction.valid) {
-        return {
-            status: "FAILED",
-            message: "Project transaction eligibility date configuration is invalid.",
-            success: false,
-            data: null,
-            errorKey: "INVALID_DATE_RANGE",
-            httpStatus: 400,
-        };
-    }
+        const restriction = parseProjectEligibilityStartDate(projectDateRestriction);
+        if (!restriction.valid) {
+            return {
+                status: "FAILED",
+                message: "Project transaction eligibility date configuration is invalid.",
+                success: false,
+                data: null,
+                errorKey: "INVALID_DATE_RANGE",
+                httpStatus: 400,
+            };
+        }
 
-    if (
-        restriction.hasRestriction &&
-        restriction.startDate &&
-        parsedReceiptDate.getTime() < restriction.startDate.getTime()
-    ) {
-        return {
-            status: "FAILED",
-            message: "Transaction date is outside the allowed verification period for this project.",
-            success: false,
-            data: null,
-            errorKey: "TRANSACTION_DATE_EXPIRED",
-            httpStatus: 400,
-        };
+        if (
+            restriction.hasRestriction &&
+            restriction.startDate &&
+            parsedReceiptDate.getTime() < restriction.startDate.getTime()
+        ) {
+            return {
+                status: "FAILED",
+                message: "Transaction date is outside the allowed verification period for this project.",
+                success: false,
+                data: null,
+                errorKey: "TRANSACTION_DATE_EXPIRED",
+                httpStatus: 400,
+            };
+        }
     }
 
     const TransactionData = {
@@ -440,7 +386,9 @@ export async function verifyAndSaveBankTransaction(
         method: bankCode,
         status: "verified",
         from: receipt.payerName ? normalizeBankReceiptName(receipt.payerName) : "Unknown Payer",
-        to: expectedReceiverName || receipt.receiverName,
+        to: paymentOnly
+            ? receipt.receiverName || expectedReceiverName || "Verified Payee"
+            : expectedReceiverName || receipt.receiverName,
         currency,
         risk_score: 98,
     };

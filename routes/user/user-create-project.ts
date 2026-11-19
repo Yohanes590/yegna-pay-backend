@@ -22,24 +22,45 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
         req.body.date_expire ??
         "";
     const paymentReceiverName = req.body.paymentReceiverName || req.body.receiver_name || "";
+    const detailVerification =
+        req.body.detail_verification !== undefined
+            ? Boolean(req.body.detail_verification)
+            : req.body.detailVerification !== undefined
+            ? Boolean(req.body.detailVerification)
+            : true;
 
-    if (!project_name || !api_sec || !paymentReceiverName) {
+    if (!project_name || !api_sec) {
         const errPayload = buildErrorResponse("MISSING_REQUIRED_FIELD", {
             message: "Please fill in all required credentials!",
         });
         return res.status(errPayload.status).json(errPayload);
     }
 
-    const normalizedDate = normalizeProjectEligibilityDate(
-        typeof rawEligibilityDate === "string" ? rawEligibilityDate : ""
-    );
-    if (!normalizedDate.valid) {
-        const errPayload = buildErrorResponse("INVALID_DATE_RANGE", {
-            message: "Invalid transaction eligibility start date. Please provide a valid date (YYYY-MM-DD).",
+    if (detailVerification && !paymentReceiverName) {
+        const errPayload = buildErrorResponse("MISSING_REQUIRED_FIELD", {
+            message: "Payment receiver name is required when detailed verification is enabled.",
         });
         return res.status(errPayload.status).json(errPayload);
     }
-    const expiresDate = normalizedDate.normalized;
+
+    let expiresDate: string | null = null;
+    if (detailVerification) {
+        const normalizedDate = normalizeProjectEligibilityDate(
+            typeof rawEligibilityDate === "string" ? rawEligibilityDate : ""
+        );
+        if (!normalizedDate.valid) {
+            const errPayload = buildErrorResponse("INVALID_DATE_RANGE", {
+                message: "Invalid transaction eligibility start date. Please provide a valid date (YYYY-MM-DD).",
+            });
+            return res.status(errPayload.status).json(errPayload);
+        }
+        expiresDate = normalizedDate.normalized;
+    } else if (typeof rawEligibilityDate === "string" && rawEligibilityDate.trim() !== "") {
+        const normalizedDate = normalizeProjectEligibilityDate(rawEligibilityDate);
+        if (normalizedDate.valid) {
+            expiresDate = normalizedDate.normalized;
+        }
+    }
 
     let resolvedUserId: string | null = null;
 
@@ -86,7 +107,8 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
                 project_description: project_discription,
                 ProjectBalance: "0.00 ETB",
                 before_expires: expiresDate,
-                receiver_name: paymentReceiverName,
+                receiver_name: paymentReceiverName || null,
+                detail_verification: detailVerification,
                 user: {
                     connect: {
                         id: resolvedUserId,

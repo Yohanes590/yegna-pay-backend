@@ -1,23 +1,14 @@
 import { bankRegistry, type BankConfig, type BankIdentifier } from "./bank-registry.js";
 import { extractCleanTransactionId } from "./cbe-domain.js";
+import {
+    buildLegacyBankConfig,
+    getAliasMap,
+    getRuntimeBankByPlatform,
+    listEnabledBanks,
+} from "../modules/verification/bank.registry.js";
+import type { BankPlatformCode } from "../modules/verification/bank.types.js";
 
-export type SupportedBankCode = "CBE" | "AWASH" | "BOA";
-
-const BANK_ALIAS_MAP: Record<string, SupportedBankCode> = {
-    CBE: "CBE",
-    "COMMERCIAL BANK OF ETHIOPIA": "CBE",
-    COMMERCIAL_BANK_OF_ETHIOPIA: "CBE",
-    AWASH: "AWASH",
-    AWAS: "AWASH",
-    AWAS_BANK: "AWASH",
-    AWASH_BANK: "AWASH",
-    "AWASH BANK": "AWASH",
-    AWASHPAY: "AWASH",
-    BOA: "BOA",
-    ABYSSINIA: "BOA",
-    "BANK OF ABYSSINIA": "BOA",
-    BANK_OF_ABYSSINIA: "BOA",
-};
+export type SupportedBankCode = BankPlatformCode;
 
 const BANK_CODE_TO_REGISTRY_ID: Record<SupportedBankCode, BankIdentifier> = {
     CBE: "CBE",
@@ -33,7 +24,7 @@ export function tryResolveExplicitBank(input?: string): SupportedBankCode | null
     if (!normalized) {
         return null;
     }
-    return BANK_ALIAS_MAP[normalized] || null;
+    return getAliasMap().get(normalized) ?? null;
 }
 
 export function toRegistryBankId(bankCode: SupportedBankCode): BankIdentifier {
@@ -41,7 +32,7 @@ export function toRegistryBankId(bankCode: SupportedBankCode): BankIdentifier {
 }
 
 export function getBankConfigByCode(bankCode: SupportedBankCode): BankConfig {
-    return bankRegistry[toRegistryBankId(bankCode)];
+    return buildLegacyBankConfig(toRegistryBankId(bankCode));
 }
 
 export function detectBankFromUrl(candidateUrl: string): SupportedBankCode | null {
@@ -53,11 +44,12 @@ export function detectBankFromUrl(candidateUrl: string): SupportedBankCode | nul
     }
 
     const inputHost = parsed.hostname.toLowerCase();
-    for (const code of ["CBE", "AWASH", "BOA"] as const) {
+    for (const entry of listEnabledBanks()) {
         try {
-            const expectedUrl = getBankConfigByCode(code).getDomain();
+            const config = getBankConfigByCode(entry.platform);
+            const expectedUrl = config.getDomain();
             if (expectedUrl.hostname.toLowerCase() === inputHost) {
-                return code;
+                return entry.platform;
             }
         } catch {
             // Skip banks whose env domain is missing/invalid during auto-detection
@@ -106,7 +98,6 @@ export function resolveBankAndTransaction({
     let bankCode: SupportedBankCode;
 
     if (currencyBank) {
-        // Callers occasionally pass the target bank inside `currency` (e.g. currency: "AWASH")
         bankCode = currencyBank;
     } else if (platformStr) {
         const resolvedPlatform = tryResolveExplicitBank(platformStr);
@@ -124,6 +115,13 @@ export function resolveBankAndTransaction({
     }
 
     const bankConfig = getBankConfigByCode(bankCode);
+    if (!bankConfig.enabled) {
+        return {
+            ok: false,
+            message: `${bankConfig.displayName} integration is temporarily disabled.`,
+        };
+    }
+
     const storedCurrency = currencyBank || !currencyStr ? "ETB" : currencyStr.toUpperCase();
 
     if (candidateUrl) {
@@ -149,10 +147,11 @@ export function resolveBankAndTransaction({
                 transactionUrl: fullUrl,
                 storedCurrency,
             };
-        } catch (err: any) {
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
             return {
                 ok: false,
-                message: err?.message || `Invalid ${bankConfig.displayName} transaction URL.`,
+                message: message || `Invalid ${bankConfig.displayName} transaction URL.`,
             };
         }
     }
@@ -182,3 +181,5 @@ export function resolveBankAndTransaction({
     };
 }
 
+/** @deprecated Internal map kept for rare legacy imports */
+export const bankRegistryReexport = bankRegistry;

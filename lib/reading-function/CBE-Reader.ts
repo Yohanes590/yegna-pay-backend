@@ -1,6 +1,5 @@
 import "dotenv/config";
-import axios from "axios";
-import pdf from "@cedrugs/pdf-parse";
+import { fetchAndParsePdf } from "../../modules/verification/readers/pdf.reader.js";
 
 interface CBEReceiptData {
     payer: string;
@@ -27,16 +26,8 @@ export async function CBEReadingPDF(transactionData: { platform: string; transac
     }
 
     try {
-        const response = await axios.get(cbe_link, {
-            responseType: "arraybuffer",
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            },
-            timeout: 15000
-        });
-
-        const data = await pdf(Buffer.from(response.data));
-        const rawText: string = data.text;
+        const cbeHost = new URL(normalizedDomain).hostname;
+        const { text: rawText } = await fetchAndParsePdf(cbe_link, cbeHost);
         const extracted: CBEReceiptData = {
             payer: (rawText.match(/Payer\s*([\s\S]*?)\nAccount/i)?.[1] ?? "Unknown")
                 .trim()

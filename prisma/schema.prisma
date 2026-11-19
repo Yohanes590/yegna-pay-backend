@@ -64,6 +64,8 @@ model Projects {
   qrReceiptImages QrReceiptImage[]
   before_expires String?
   receiver_name String?
+  /// When true: match receiver name, amount, and eligibility date. When false: amount + duplicate only.
+  detail_verification Boolean @default(true)
 }
 
 

@@ -1,0 +1,53 @@
+{
+  "banks": [
+    {
+      "name": "Commercial Bank of Ethiopia",
+      "platform": "CBE",
+      "registryId": "CBE",
+      "enabled": true,
+      "domain_env": "CBE_DOMAIN",
+      "domain_fallback": "https://apps.cbe.com.et/",
+      "link_readable": "pdf",
+      "adapter": "cbe",
+      "aliases": [
+        "CBE",
+        "COMMERCIAL BANK OF ETHIOPIA",
+        "COMMERCIAL_BANK_OF_ETHIOPIA"
+      ]
+    },
+    {
+      "name": "Awash Bank",
+      "platform": "AWASH",
+      "registryId": "AWAS_BANK",
+      "enabled": true,
+      "domain_env": "AWASH_DOMAIN",
+      "domain_fallback": "https://awashpay.awashbank.com:8225/",
+      "link_readable": "web",
+      "adapter": "awash",
+      "aliases": [
+        "AWASH",
+        "AWAS",
+        "AWAS_BANK",
+        "AWASH_BANK",
+        "AWASH BANK",
+        "AWASHPAY"
+      ]
+    },
+    {
+      "name": "Bank of Abyssinia",
+      "platform": "BOA",
+      "registryId": "BOA",
+      "enabled": true,
+      "domain_env": "BOA_DOMAIN",
+      "domain_fallback": "https://cs.bankofabyssinia.com/",
+      "link_readable": "web",
+      "adapter": "boa",
+      "aliases": [
+        "BOA",
+        "ABYSSINIA",
+        "BANK OF ABYSSINIA",
+        "BANK_OF_ABYSSINIA"
+      ]
+    }
+  ]
+}

@@ -353,6 +353,9 @@ router.post("/", handleOptionalReceiptUpload, async (req: Request, res: Response
         }
 
         // 9. Verify recipient, amount, date restriction, and persist transaction atomically (unique constraint prevents concurrent duplicates)
+        const verificationMode =
+            userStatusCheck.detail_verification === false ? "payment_only" : "detailed";
+
         const verificationResponse = await verifyAndSaveBankTransaction({
             bankCode: finalPlatform,
             receipt: receiptOutcome.receipt,
@@ -362,6 +365,7 @@ router.post("/", handleOptionalReceiptUpload, async (req: Request, res: Response
             transactionId: finalTransactionId,
             projectId: userStatusCheck.id,
             currency: storedCurrency,
+            verificationMode,
         });
 
         if (!verificationResponse.success) {
