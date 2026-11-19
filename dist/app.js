@@ -21,33 +21,29 @@ import BuyRequest from './routes/user/buy-request.js';
 import qrImagesRouter from "./routes/user/qr-images.js";
 import notificationsRouter from "./routes/user/notifications.js";
 import publicConfigRouter from "./routes/config/public.js";
+import { getPrimaryClientUrl, isOriginAllowed } from "./lib/cors-origins.js";
 // ------------------------------- //
 const app = Express();
 app.set('trust proxy', 1);
-const rawClientUrls = (process.env.CLIENT_URL || "http://localhost:3000")
-    .split(",")
-    .map((u) => u.trim().replace(/\/+$/, ""))
-    .filter(Boolean);
-const clientUrl = rawClientUrls[0] || "http://localhost:3000";
-const allowedOrigins = Array.from(new Set([
-    ...rawClientUrls,
-    "http://localhost:3000",
-    "https://admin-yegna-pay.vercel.app",
-    "https://yegna-pay.vercel.app",
-]));
-const defaultCors = cors({
+const clientUrl = getPrimaryClientUrl();
+const corsOptions = {
     origin: (origin, callback) => {
-        if (!origin)
-            return callback(null, true);
-        if (allowedOrigins.includes(origin) ||
-            origin.endsWith(".vercel.app") ||
-            origin.endsWith(".yonas.cloud")) {
-            return callback(null, true);
-        }
-        return callback(null, true);
+        callback(null, isOriginAllowed(origin));
     },
-    credentials: true
-});
+    credentials: true,
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "Accept",
+        "Origin",
+        "x-api-key",
+        "better-auth",
+    ],
+    optionsSuccessStatus: 204,
+};
+const defaultCors = cors(corsOptions);
 const transactionCreateCors = cors({
     origin: "*",
     methods: ["POST", "OPTIONS"],
@@ -106,8 +102,10 @@ app.use((req, res, next) => {
     }
     next();
 });
-// Mount Better Auth directly on the backend
-app.all(["/api/auth", "/api/auth/*splat"], toNodeHandler(auth));
+// Better Auth: CORS + OPTIONS must run before the auth handler (cross-origin from www.yegnapay.com → API)
+const authHandler = toNodeHandler(auth);
+app.options(["/api/auth", "/api/auth/*splat"], defaultCors);
+app.all(["/api/auth", "/api/auth/*splat"], defaultCors, (req, res) => authHandler(req, res));
 app.use(Express.json());
 app.use(Express.urlencoded({ extended: true }));
 app.use(RateLimiter);

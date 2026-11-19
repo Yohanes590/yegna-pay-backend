@@ -5,6 +5,7 @@ import { JWTGenerate, VerifyToken } from "../../lib/JWT-generate.js";
 import { prisma } from "../../lib/prisma.js";
 import { auth } from "../../lib/auth.js";
 import { ensureWelcomeNotification } from "../../lib/notification-service.js";
+import { inferGithubHandleFromName, isGenericDisplayName, resolveGithubUsername, } from "../../lib/oauth-profile.js";
 const router = Router();
 router.post("/", async (req, res) => {
     try {
@@ -128,35 +129,57 @@ router.post("/", async (req, res) => {
                 },
             });
         }
-        else if (betterAuthUser?.image && (!fetchEmail.avatar_url || fetchEmail.avatar_url.trim() === "")) {
-            // Keep avatar_url in sync with OAuth profile photo
-            fetchEmail = await prisma.users.update({
-                where: { id: fetchEmail.id },
-                data: { avatar_url: betterAuthUser.image },
-                include: {
-                    projects: {
-                        include: {
-                            transactions: {
-                                include: {
-                                    Logs: {
-                                        select: { transaction_bank: true },
-                                        orderBy: { created_at: "desc" },
-                                        take: 1,
+        if (betterAuthUser) {
+            const githubFromAccount = await resolveGithubUsername(betterAuthUser.id);
+            const githubFromName = inferGithubHandleFromName(betterAuthUser.name);
+            const githubUsername = githubFromAccount || githubFromName;
+            const oauthName = (betterAuthUser.name || "").trim();
+            const preferredName = githubUsername ||
+                (!isGenericDisplayName(oauthName) ? oauthName : "") ||
+                (!isGenericDisplayName(fetchEmail.full_name) ? fetchEmail.full_name : oauthName) ||
+                fetchEmail.full_name;
+            const preferredAvatar = (betterAuthUser.image || fetchEmail.avatar_url || "").trim();
+            const provider = fetchEmail.Provider && fetchEmail.Provider !== "better-auth"
+                ? fetchEmail.Provider
+                : githubUsername
+                    ? "github"
+                    : fetchEmail.Provider || "better-auth";
+            const shouldUpdateProfile = (preferredName && preferredName !== fetchEmail.full_name) ||
+                (preferredAvatar && preferredAvatar !== (fetchEmail.avatar_url || "")) ||
+                (provider !== fetchEmail.Provider);
+            if (shouldUpdateProfile) {
+                fetchEmail = await prisma.users.update({
+                    where: { id: fetchEmail.id },
+                    data: {
+                        full_name: preferredName,
+                        avatar_url: preferredAvatar || fetchEmail.avatar_url,
+                        Provider: provider,
+                    },
+                    include: {
+                        projects: {
+                            include: {
+                                transactions: {
+                                    include: {
+                                        Logs: {
+                                            select: { transaction_bank: true },
+                                            orderBy: { created_at: "desc" },
+                                            take: 1,
+                                        },
                                     },
+                                    orderBy: { created_at: "desc" },
                                 },
-                                orderBy: { created_at: "desc" },
+                            },
+                        },
+                        revenues: {
+                            orderBy: {
+                                time_stamp: "desc",
                             },
                         },
                     },
-                    revenues: {
-                        orderBy: {
-                            time_stamp: "desc",
-                        },
-                    },
-                },
-            });
+                });
+            }
+            fetchEmail.github_username = githubUsername || inferGithubHandleFromName(fetchEmail.full_name);
         }
-        // Fallback: If avatar_url is still empty on Users, attach betterAuthUser image to response
         if (!fetchEmail.avatar_url && betterAuthUser?.image) {
             fetchEmail.avatar_url = betterAuthUser.image;
         }
