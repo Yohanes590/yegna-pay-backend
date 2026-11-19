@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import type {
@@ -13,7 +13,22 @@ import { getDomainFromEnv, validateBankDomain, extractCleanTransactionId } from 
 import { resolveAdapter } from "./adapters/index.js";
 import { verificationLog } from "./structured-logger.js";
 
-const CONFIG_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../config/banks.json");
+function resolveBanksConfigPath(): string {
+    const relativeToModule = path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../../config/banks.json"
+    );
+    if (existsSync(relativeToModule)) {
+        return relativeToModule;
+    }
+    const fromCwd = path.join(process.cwd(), "config", "banks.json");
+    if (existsSync(fromCwd)) {
+        return fromCwd;
+    }
+    throw new Error(
+        `banks.json not found (tried ${relativeToModule} and ${fromCwd}). Ensure config/ is deployed beside dist/.`
+    );
+}
 
 let cachedConfig: BanksConfigFile | null = null;
 let cachedByPlatform: Map<string, RuntimeBankDefinition> | null = null;
@@ -22,7 +37,7 @@ let cachedAliasMap: Map<string, BankPlatformCode> | null = null;
 
 function loadBanksConfig(): BanksConfigFile {
     if (cachedConfig) return cachedConfig;
-    const raw = readFileSync(CONFIG_PATH, "utf8");
+    const raw = readFileSync(resolveBanksConfigPath(), "utf8");
     const parsed = JSON.parse(raw) as BanksConfigFile;
     if (!parsed?.banks?.length) {
         throw new Error("banks.json must define at least one bank.");
