@@ -44,6 +44,19 @@ async function usersIdFromJwtPayload(payload: { id?: string; email?: string }): 
 export async function resolveAuthenticatedUserId(req: Request): Promise<string | null> {
     const clientToken = extractClientToken(req);
 
+    if (process.env.AUTH_DEBUG === "1") {
+        const hasAuth = Boolean(req.headers.authorization);
+        const hasBodyToken = Boolean(
+            (typeof req.body?.token === "string" && req.body.token.trim()) ||
+                (typeof req.body?.user_token === "string" && req.body.user_token.trim())
+        );
+        console.info("[resolveAuthenticatedUserId]", {
+            hasAuthorizationHeader: hasAuth,
+            hasBodyToken,
+            tokenLength: clientToken.length,
+        });
+    }
+
     if (clientToken) {
         const decode = VerifyToken(clientToken);
         if (decode.status === 200 && decode.message) {
