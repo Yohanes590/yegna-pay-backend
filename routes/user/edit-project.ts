@@ -40,7 +40,25 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
         }
     }
 
+    if (!id || typeof id !== "string") {
+        const errPayload = buildErrorResponse("MISSING_REQUIRED_FIELD", {
+            message: "Project id is required.",
+        });
+        return res.status(errPayload.status).json(errPayload);
+    }
+
     try {
+        const owned = await prisma.projects.findFirst({
+            where: { id, user_Id: resolvedUserId },
+            select: { id: true },
+        });
+        if (!owned) {
+            const errPayload = buildErrorResponse("PROJECT_NOT_FOUND", {
+                message: "Workspace not found or you do not have permission to edit it.",
+            });
+            return res.status(errPayload.status).json(errPayload);
+        }
+
         await prisma.projects.update({
             where: { id },
             data: sanitizedUpdate,

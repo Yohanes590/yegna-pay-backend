@@ -326,14 +326,30 @@ export async function verifyAndSaveBankTransaction(
     const cleanTransferred = parseNumericAmount(receipt.transferredAmount);
     const cleanPrice = parseNumericAmount(requestedPriceAmount);
 
-    if (cleanTransferred === null || cleanPrice === null || cleanTransferred !== cleanPrice) {
+    if (!paymentOnly) {
+        if (cleanTransferred === null || cleanPrice === null || cleanTransferred !== cleanPrice) {
+            return {
+                status: "FAILED",
+                message: "Transaction amount does not match the requested price",
+                success: false,
+                data: null,
+                vs: `${receipt.transferredAmount} vs ${requestedPriceAmount}`,
+                errorKey: "AMOUNT_MISMATCH",
+                httpStatus: 400,
+            };
+        }
+    }
+
+    const storedAmount = paymentOnly ? (cleanTransferred ?? cleanPrice) : cleanTransferred;
+    if (storedAmount === null || storedAmount === undefined) {
         return {
             status: "FAILED",
-            message: "Transaction amount does not match the requested price",
+            message: paymentOnly
+                ? "Could not determine transaction amount for storage."
+                : "Transaction amount does not match the requested price",
             success: false,
             data: null,
-            vs: `${receipt.transferredAmount} vs ${requestedPriceAmount}`,
-            errorKey: "AMOUNT_MISMATCH",
+            errorKey: paymentOnly ? "INVALID_RECEIPT_AMOUNT" : "AMOUNT_MISMATCH",
             httpStatus: 400,
         };
     }
@@ -381,7 +397,7 @@ export async function verifyAndSaveBankTransaction(
 
     const TransactionData = {
         transaction_id: transactionId,
-        transaction_amount: cleanTransferred,
+        transaction_amount: storedAmount,
         created_at: new Date().getDate(),
         method: bankCode,
         status: "verified",
