@@ -6,6 +6,7 @@ import { prisma } from "../../lib/prisma.js";
 import { auth } from "../../lib/auth.js";
 import { ensureWelcomeNotification } from "../../lib/notification-service.js";
 import { inferGithubHandleFromName, isGenericDisplayName, resolveGithubUsername, } from "../../lib/oauth-profile.js";
+import { resolveUserFromSessionToken } from "../../lib/session-token-resolve.js";
 const router = Router();
 router.post("/", async (req, res) => {
     try {
@@ -21,15 +22,11 @@ router.post("/", async (req, res) => {
                 userId = decodeToken.message.id;
             }
             else {
-                // 1b. Check if clientToken is a Better Auth session database token
                 try {
-                    const dbSession = await prisma.session.findUnique({
-                        where: { token: trimmedToken },
-                        include: { user: true }
-                    });
-                    if (dbSession && dbSession.expiresAt > new Date() && dbSession.user?.email) {
-                        userEmail = dbSession.user.email;
-                        userId = dbSession.user.id;
+                    const sessionUser = await resolveUserFromSessionToken(trimmedToken);
+                    if (sessionUser) {
+                        userEmail = sessionUser.email;
+                        userId = sessionUser.authUserId;
                     }
                 }
                 catch {

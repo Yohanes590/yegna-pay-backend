@@ -1,1 +1,1 @@
-{"version":3,"file":"resolve-session-user.d.ts","sourceRoot":"","sources":["../../lib/resolve-session-user.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,OAAO,EAAE,MAAM,SAAS,CAAC;AAuCvC;;GAEG;AACH,wBAAsB,0BAA0B,CAAC,GAAG,EAAE,OAAO,GAAG,OAAO,CAAC,MAAM,GAAG,IAAI,CAAC,CAqCrF"}
+{"version":3,"file":"resolve-session-user.d.ts","sourceRoot":"","sources":["../../lib/resolve-session-user.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,OAAO,EAAE,MAAM,SAAS,CAAC;AAwCvC;;GAEG;AACH,wBAAsB,0BAA0B,CAAC,GAAG,EAAE,OAAO,GAAG,OAAO,CAAC,MAAM,GAAG,IAAI,CAAC,CAkCrF"}

@@ -2,6 +2,7 @@ import { fromNodeHeaders } from "better-auth/node";
 import { VerifyToken } from "./JWT-generate.js";
 import { prisma } from "./prisma.js";
 import { auth } from "./auth.js";
+import { resolveUserFromSessionToken } from "./session-token-resolve.js";
 function extractClientToken(req) {
     const bodyToken = typeof req.body?.token === "string" ? req.body.token.trim() : "";
     const authHeader = req.headers.authorization;
@@ -45,12 +46,9 @@ export async function resolveAuthenticatedUserId(req) {
                 return fromJwt;
         }
         try {
-            const dbSession = await prisma.session.findUnique({
-                where: { token: clientToken },
-                include: { user: true },
-            });
-            if (dbSession && dbSession.expiresAt > new Date() && dbSession.user?.email) {
-                const fromSession = await usersIdFromEmail(dbSession.user.email);
+            const sessionUser = await resolveUserFromSessionToken(clientToken);
+            if (sessionUser?.email) {
+                const fromSession = await usersIdFromEmail(sessionUser.email);
                 if (fromSession)
                     return fromSession;
             }
