@@ -5,8 +5,8 @@ export declare const UserCheckFunction: (userEmail: string) => Promise<{
         email: string;
         id: string;
         password: string | null;
-        full_name: string;
         avatar_url: string | null;
+        full_name: string;
         Provider: string | null;
         account_status: string;
         payment_plan: string;

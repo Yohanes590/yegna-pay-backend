@@ -27,6 +27,16 @@ export const auth = betterAuth({
             clientId: githubClientId,
             clientSecret: githubClientSecret,
             enabled: hasGithub,
+            scope: ["read:user", "user:email"],
+            mapProfileToUser: (profile) => {
+                const p = profile;
+                const login = p.login?.trim() || "";
+                return {
+                    name: (p.name && p.name.trim()) || login || "GitHub User",
+                    email: p.email ?? undefined,
+                    image: p.avatar_url || (login ? `https://avatars.githubusercontent.com/${login}?v=4` : undefined),
+                };
+            },
         },
     },
     account: {

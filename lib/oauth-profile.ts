@@ -18,6 +18,32 @@ export async function resolveGithubUsername(authUserId: string): Promise<string 
     return accountId.replace(/^@/, "");
 }
 
+export function githubAvatarUrl(login: string): string {
+    const handle = login.replace(/^@/, "").trim();
+    return `https://avatars.githubusercontent.com/${encodeURIComponent(handle)}?v=4`;
+}
+
+export async function syncBetterAuthUserGithubProfile(authUserId: string): Promise<void> {
+    const row = await prisma.user.findUnique({
+        where: { id: authUserId },
+        select: { id: true, name: true, image: true },
+    });
+    if (!row) return;
+
+    const login = await resolveGithubUsername(authUserId);
+    if (!login) return;
+
+    const nextName = row.name?.trim() && !isGenericDisplayName(row.name) ? row.name : login;
+    const nextImage = row.image?.trim() || githubAvatarUrl(login);
+
+    if (nextName !== row.name || nextImage !== row.image) {
+        await prisma.user.update({
+            where: { id: authUserId },
+            data: { name: nextName, image: nextImage },
+        });
+    }
+}
+
 export function inferGithubHandleFromName(name?: string | null): string | null {
     const trimmed = (name || "").trim();
     if (!trimmed || trimmed.includes(" ") || isGenericDisplayName(trimmed)) return null;

@@ -5,8 +5,9 @@ import { JWTGenerate, VerifyToken } from "../../lib/JWT-generate.js";
 import { prisma } from "../../lib/prisma.js";
 import { auth } from "../../lib/auth.js";
 import { ensureWelcomeNotification } from "../../lib/notification-service.js";
-import { inferGithubHandleFromName, isGenericDisplayName, resolveGithubUsername, } from "../../lib/oauth-profile.js";
+import { githubAvatarUrl, inferGithubHandleFromName, isGenericDisplayName, resolveGithubUsername, syncBetterAuthUserGithubProfile, } from "../../lib/oauth-profile.js";
 import { resolveUserFromSessionToken } from "../../lib/session-token-resolve.js";
+import { loadMerchantUserByEmail } from "../../lib/load-merchant-user.js";
 const router = Router();
 router.post("/", async (req, res) => {
     try {
@@ -56,44 +57,36 @@ router.post("/", async (req, res) => {
             });
         }
         // 3. Find user in database
-        const betterAuthUser = await prisma.user.findUnique({
-            where: { email: userEmail }
-        }).catch(() => null);
-        let fetchEmail = await prisma.users.findUnique({
+        let betterAuthUser = await prisma.user.findUnique({
             where: { email: userEmail },
-            include: {
-                projects: {
-                    include: {
-                        transactions: {
-                            include: {
-                                Logs: {
-                                    select: { transaction_bank: true },
-                                    orderBy: { created_at: "desc" },
-                                    take: 1,
-                                },
-                            },
-                            orderBy: { created_at: "desc" },
-                        },
-                    },
-                },
-                revenues: {
-                    orderBy: {
-                        time_stamp: "desc",
-                    },
-                },
-            },
-        });
+        }).catch(() => null);
+        if (betterAuthUser?.id) {
+            await syncBetterAuthUserGithubProfile(betterAuthUser.id).catch(() => { });
+            betterAuthUser = await prisma.user.findUnique({
+                where: { email: userEmail },
+            }).catch(() => betterAuthUser);
+        }
+        let fetchEmail = await loadMerchantUserByEmail(userEmail);
         // If user logged in through Better Auth but has not been populated in Users table yet
         if (!fetchEmail) {
             const finalUserId = userId || betterAuthUser?.id || crypto.randomUUID();
             const freeQuota = Number(process.env.FREE_REQUESTS || 200);
-            fetchEmail = await prisma.users.create({
+            const githubLogin = betterAuthUser?.id
+                ? await resolveGithubUsername(betterAuthUser.id).catch(() => null)
+                : null;
+            const oauthName = (betterAuthUser?.name || "").trim();
+            const signupName = githubLogin ||
+                (!isGenericDisplayName(oauthName) ? oauthName : "") ||
+                userEmail.split("@")[0] ||
+                "Yegna Developer";
+            const signupAvatar = (betterAuthUser?.image || "").trim() ||
+                (githubLogin ? githubAvatarUrl(githubLogin) : "");
+            await prisma.users.create({
                 data: {
                     id: finalUserId,
-                    full_name: betterAuthUser?.name || "Yegna Developer",
+                    full_name: signupName,
                     email: userEmail,
-                    avatar_url: betterAuthUser?.image || "",
-                    Provider: "better-auth",
+                    avatar_url: signupAvatar,
                     account_status: "active",
                     payment_plan: "free",
                     verified: true,
@@ -101,29 +94,16 @@ router.post("/", async (req, res) => {
                     free_requests_remaining: freeQuota,
                     free_requests_used: 0,
                     paid_requests_balance: 0,
-                    paid_requests_used: 0
+                    paid_requests_used: 0,
+                    Provider: githubLogin ? "github" : "better-auth",
                 },
-                include: {
-                    projects: {
-                        include: {
-                            transactions: {
-                                include: {
-                                    Logs: {
-                                        select: { transaction_bank: true },
-                                        orderBy: { created_at: "desc" },
-                                        take: 1,
-                                    },
-                                },
-                                orderBy: { created_at: "desc" },
-                            },
-                        },
-                    },
-                    revenues: {
-                        orderBy: {
-                            time_stamp: "desc",
-                        },
-                    },
-                },
+            });
+            fetchEmail = await loadMerchantUserByEmail(userEmail);
+        }
+        if (!fetchEmail) {
+            return res.status(500).json({
+                status: 500,
+                message: "Merchant profile could not be loaded after sign-in.",
             });
         }
         if (betterAuthUser) {
@@ -135,7 +115,9 @@ router.post("/", async (req, res) => {
                 (!isGenericDisplayName(oauthName) ? oauthName : "") ||
                 (!isGenericDisplayName(fetchEmail.full_name) ? fetchEmail.full_name : oauthName) ||
                 fetchEmail.full_name;
-            const preferredAvatar = (betterAuthUser.image || fetchEmail.avatar_url || "").trim();
+            const preferredAvatar = (betterAuthUser.image ||
+                fetchEmail.avatar_url ||
+                (githubUsername ? githubAvatarUrl(githubUsername) : "")).trim();
             const provider = fetchEmail.Provider && fetchEmail.Provider !== "better-auth"
                 ? fetchEmail.Provider
                 : githubUsername
@@ -145,35 +127,15 @@ router.post("/", async (req, res) => {
                 (preferredAvatar && preferredAvatar !== (fetchEmail.avatar_url || "")) ||
                 (provider !== fetchEmail.Provider);
             if (shouldUpdateProfile) {
-                fetchEmail = await prisma.users.update({
+                await prisma.users.update({
                     where: { id: fetchEmail.id },
                     data: {
                         full_name: preferredName,
                         avatar_url: preferredAvatar || fetchEmail.avatar_url,
                         Provider: provider,
                     },
-                    include: {
-                        projects: {
-                            include: {
-                                transactions: {
-                                    include: {
-                                        Logs: {
-                                            select: { transaction_bank: true },
-                                            orderBy: { created_at: "desc" },
-                                            take: 1,
-                                        },
-                                    },
-                                    orderBy: { created_at: "desc" },
-                                },
-                            },
-                        },
-                        revenues: {
-                            orderBy: {
-                                time_stamp: "desc",
-                            },
-                        },
-                    },
                 });
+                fetchEmail = (await loadMerchantUserByEmail(userEmail)) ?? fetchEmail;
             }
             fetchEmail.github_username = githubUsername || inferGithubHandleFromName(fetchEmail.full_name);
         }
@@ -205,10 +167,14 @@ router.post("/", async (req, res) => {
         });
     }
     catch (err) {
-        console.error("Auth check error:", err?.message || err);
+        console.error("Auth check error:", err?.message || err, err?.code);
+        const hint = typeof err?.message === "string" && err.message.includes("column")
+            ? "Database schema may be out of date — run prisma db push on the backend."
+            : undefined;
         return res.status(500).json({
             status: 500,
-            message: "Internal server error verifying authentication session."
+            message: "Internal server error verifying authentication session.",
+            hint,
         });
     }
 });

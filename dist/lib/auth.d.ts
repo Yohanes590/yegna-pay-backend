@@ -8,11 +8,7 @@ export declare const auth: import("better-auth").Auth<{
         enabled: true;
     };
     socialProviders: {
-        github: {
-            clientId: string;
-            clientSecret: string;
-            enabled: boolean;
-        };
+        github: any;
     };
     account: any;
     advanced: {
