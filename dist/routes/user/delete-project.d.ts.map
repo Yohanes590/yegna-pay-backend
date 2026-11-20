@@ -1,1 +1,1 @@
-{"version":3,"file":"delete-project.d.ts","sourceRoot":"","sources":["../../../routes/user/delete-project.ts"],"names":[],"mappings":"AAOA,QAAA,MAAM,MAAM,4CAAW,CAAC;AAuDxB,eAAe,MAAM,CAAC"}
+{"version":3,"file":"delete-project.d.ts","sourceRoot":"","sources":["../../../routes/user/delete-project.ts"],"names":[],"mappings":"AAKA,QAAA,MAAM,MAAM,4CAAW,CAAC;AA6BxB,eAAe,MAAM,CAAC"}

@@ -1,13 +1,10 @@
 import { Router } from "express";
-import { fromNodeHeaders } from "better-auth/node";
-import { VerifyToken } from "../../lib/JWT-generate.js";
 import { prisma } from "../../lib/prisma.js";
-import { auth } from "../../lib/auth.js";
+import { resolveAuthenticatedUserId } from "../../lib/resolve-session-user.js";
 import { normalizeProjectEligibilityDate } from "../../service/bank-features/unified-bank-check.js";
 import { buildErrorResponse } from "../../src/utils/error-registry.js";
 const router = Router();
 router.post("/", async (req, res, next) => {
-    const { token } = req.body;
     const project_name = req.body.project_name;
     const api_sec = req.body.api_sec || req.body.apiKey;
     const webcall_back = req.body.webcall_back || req.body.call_back || "";
@@ -53,33 +50,7 @@ router.post("/", async (req, res, next) => {
             expiresDate = normalizedDate.normalized;
         }
     }
-    let resolvedUserId = null;
-    // 1. Verify via token
-    if (token && typeof token === "string" && token.trim() !== "") {
-        const decode = VerifyToken(token);
-        if (decode.status === 200 && decode.message?.id) {
-            resolvedUserId = decode.message.id;
-        }
-    }
-    // 2. Fallback to Better Auth session cookies
-    if (!resolvedUserId) {
-        try {
-            const session = await auth.api.getSession({
-                headers: fromNodeHeaders(req.headers)
-            });
-            if (session?.user?.email) {
-                const dbUser = await prisma.users.findUnique({
-                    where: { email: session.user.email }
-                });
-                if (dbUser?.id) {
-                    resolvedUserId = dbUser.id;
-                }
-            }
-        }
-        catch {
-            // session check failed
-        }
-    }
+    const resolvedUserId = await resolveAuthenticatedUserId(req);
     if (!resolvedUserId) {
         const errPayload = buildErrorResponse("UNAUTHORIZED", {
             message: "Unauthorized token. Please sign in again.",

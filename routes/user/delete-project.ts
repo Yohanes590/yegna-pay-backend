@@ -1,41 +1,13 @@
 import { Router, type NextFunction, type Request, type Response } from "express";
-import { fromNodeHeaders } from "better-auth/node";
 import { prisma } from "../../lib/prisma.js";
-import { VerifyToken } from "../../lib/JWT-generate.js";
-import { auth } from "../../lib/auth.js";
+import { resolveAuthenticatedUserId } from "../../lib/resolve-session-user.js";
 import { buildErrorResponse } from "../../src/utils/error-registry.js";
 
 const router = Router();
 
 router.post("/", async (req: Request, res: Response, next: NextFunction) => {
-    const { project_id, user_token, token } = req.body;
-    const clientToken = user_token || token;
-    let resolvedUserId: string | null = null;
-
-    if (clientToken && typeof clientToken === "string" && clientToken.trim() !== "") {
-        const decode = VerifyToken(clientToken);
-        if (decode.status === 200 && decode.message?.id) {
-            resolvedUserId = decode.message.id;
-        }
-    }
-
-    if (!resolvedUserId) {
-        try {
-            const session = await auth.api.getSession({
-                headers: fromNodeHeaders(req.headers)
-            });
-            if (session?.user?.email) {
-                const dbUser = await prisma.users.findUnique({
-                    where: { email: session.user.email }
-                });
-                if (dbUser?.id) {
-                    resolvedUserId = dbUser.id;
-                }
-            }
-        } catch {
-            // session check failed
-        }
-    }
+    const { project_id } = req.body;
+    const resolvedUserId = await resolveAuthenticatedUserId(req);
 
     if (!resolvedUserId) {
         const errPayload = buildErrorResponse("UNAUTHORIZED", {

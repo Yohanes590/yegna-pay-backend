@@ -1,38 +1,12 @@
 import { Router } from "express";
-import { fromNodeHeaders } from "better-auth/node";
 import { prisma } from "../../lib/prisma.js";
-import { VerifyToken } from "../../lib/JWT-generate.js";
-import { auth } from "../../lib/auth.js";
+import { resolveAuthenticatedUserId } from "../../lib/resolve-session-user.js";
 import { normalizeProjectEligibilityDate } from "../../service/bank-features/unified-bank-check.js";
 import { buildErrorResponse } from "../../src/utils/error-registry.js";
 const router = Router();
 router.post("/", async (req, res, next) => {
-    const { token, updatedData, id } = req.body;
-    let resolvedUserId = null;
-    if (token && typeof token === "string" && token.trim() !== "") {
-        const decode = VerifyToken(token);
-        if (decode.status === 200 && decode.message?.id) {
-            resolvedUserId = decode.message.id;
-        }
-    }
-    if (!resolvedUserId) {
-        try {
-            const session = await auth.api.getSession({
-                headers: fromNodeHeaders(req.headers)
-            });
-            if (session?.user?.email) {
-                const dbUser = await prisma.users.findUnique({
-                    where: { email: session.user.email }
-                });
-                if (dbUser?.id) {
-                    resolvedUserId = dbUser.id;
-                }
-            }
-        }
-        catch {
-            // session check failed
-        }
-    }
+    const { updatedData, id } = req.body;
+    const resolvedUserId = await resolveAuthenticatedUserId(req);
     if (!resolvedUserId) {
         const errPayload = buildErrorResponse("UNAUTHORIZED", {
             message: "Unauthorized token. Please sign in again.",
