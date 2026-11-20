@@ -191,6 +191,13 @@ router.post("/", async (req, res) => {
             id: fetchEmail.id,
             email: fetchEmail.email
         }, "7d");
+        if (issuedToken.status !== 200 || typeof issuedToken.message !== "string" || !issuedToken.message) {
+            console.error("Auth check: JWT issuance failed", issuedToken);
+            return res.status(500).json({
+                status: 500,
+                message: "Unable to issue session token. Check SECRETE_KEY / JWT_SECRET on the backend.",
+            });
+        }
         return res.status(200).json({
             status: 200,
             fetchEmail,

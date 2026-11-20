@@ -1,56 +1,13 @@
 import { Router } from "express";
-import { fromNodeHeaders } from "better-auth/node";
-import { VerifyToken } from "../../lib/JWT-generate.js";
 import { prisma } from "../../lib/prisma.js";
-import { auth } from "../../lib/auth.js";
+import { resolveAuthenticatedUserId } from "../../lib/resolve-session-user.js";
 import { getUserNotifications, markUserNotificationsAsRead, clearUserNotifications, } from "../../lib/notification-service.js";
 const router = Router();
 async function resolveAuthenticatedUser(req) {
-    const authHeader = req.headers.authorization;
-    const clientToken = req.body?.token || (authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : authHeader);
-    let userEmail = null;
-    let userId = null;
-    if (clientToken && typeof clientToken === "string" && clientToken.trim() !== "") {
-        const decoded = VerifyToken(clientToken.trim());
-        if (decoded.status === 200 && decoded.message?.email) {
-            userEmail = decoded.message.email;
-            userId = decoded.message.id;
-        }
-        else {
-            try {
-                const dbSession = await prisma.session.findUnique({
-                    where: { token: clientToken.trim() },
-                    include: { user: true },
-                });
-                if (dbSession && dbSession.expiresAt > new Date() && dbSession.user?.email) {
-                    userEmail = dbSession.user.email;
-                    userId = dbSession.user.id;
-                }
-            }
-            catch {
-                // ignore
-            }
-        }
-    }
-    if (!userEmail) {
-        try {
-            const session = await auth.api.getSession({
-                headers: fromNodeHeaders(req.headers),
-            });
-            if (session?.user?.email) {
-                userEmail = session.user.email;
-                userId = session.user.id;
-            }
-        }
-        catch {
-            // ignore
-        }
-    }
-    if (!userEmail)
+    const userId = await resolveAuthenticatedUserId(req);
+    if (!userId)
         return null;
-    return await prisma.users.findUnique({
-        where: { email: userEmail },
-    });
+    return prisma.users.findUnique({ where: { id: userId } });
 }
 // GET /api/user/notifications
 router.get("/", async (req, res, next) => {
