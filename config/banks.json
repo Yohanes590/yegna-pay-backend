@@ -7,7 +7,7 @@
       "enabled": true,
       "domain_env": "CBE_DOMAIN",
       "domain_fallback": "https://apps.cbe.com.et/, https://mbreciept.cbe.com.et/",
-      "link_readable": "pdf",
+      "link_readable": "hybrid",
       "adapter": "cbe",
       "aliases": [
         "CBE",

@@ -4,6 +4,7 @@ import { tryResolveExplicitBank, detectBankFromUrl, resolveBankAndTransaction } 
 import { normalizeBankIdentifier, getBankConfig } from "../lib/bank-registry.js";
 import { getRuntimeBankByPlatform, listEnabledBanks } from "../modules/verification/bank.registry.js";
 import { cbeAdapter, awashAdapter, boaAdapter } from "../modules/verification/adapters/index.js";
+import { parseCbeMbReceiptHtml } from "../lib/reading-function/CBE-MbReceipt-reader.js";
 
 describe("bank registry", () => {
     it("loads three enabled banks from config", () => {
@@ -95,6 +96,21 @@ describe("bank registry", () => {
         if (outcome.ok) {
             assert.equal(outcome.receipt.referenceNo, "TXN123");
         }
+    });
+
+    it("parses mbreciept HTML receipt fields", () => {
+        const sample = `
+            <table>
+              <tr><td>Payer</td><td>ALICE BEBE</td></tr>
+              <tr><td>Receiver</td><td>MERCHANT XYZ</td></tr>
+              <tr><td>Transferred Amount</td><td>500.00 ETB</td></tr>
+              <tr><td>Payment Date & Time</td><td>11/23/2026, 10:00:00 AM</td></tr>
+              <tr><td>Reference No. (VAT Invoice No)</td><td>FT26063D7W5C</td></tr>
+            </table>`;
+        const parsed = parseCbeMbReceiptHtml(sample);
+        assert.equal(parsed.transferredAmount, "500.00 ETB");
+        assert.equal(parsed.referenceNo, "FT26063D7W5C");
+        assert.match(parsed.receiver, /MERCHANT/);
     });
 
     it("CBE adapter flags invalid reference", () => {

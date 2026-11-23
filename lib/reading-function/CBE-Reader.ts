@@ -1,13 +1,11 @@
 import "dotenv/config";
-import * as cheerio from "cheerio";
 import {
     buildCbeReceiptUrl,
     detectCbeReceiptKind,
-    CBE_MBRECEIPT_HOST,
 } from "../cbe-receipt-hosts.js";
 import { extractCleanTransactionId } from "../cbe-domain.js";
 import { fetchAndParsePdf } from "../../modules/verification/readers/pdf.reader.js";
-import { fetchHtmlViaHttp } from "../../modules/verification/readers/web.reader.js";
+import { readCbeMbReceiptPage } from "./CBE-MbReceipt-reader.js";
 
 interface CBEReceiptData {
     payer: string;
@@ -57,12 +55,20 @@ function verifyCbeReceiptReference(
         }
     })();
 
-  if (detectCbeReceiptKind(receiptUrl) === "mbreciept") {
-        if (slugFromUrl && (cleanId.includes(slugFromUrl) || slugFromUrl === cleanId)) {
-            return receiptText.length > 80;
+    if (detectCbeReceiptKind(receiptUrl) === "mbreciept") {
+        const hasReceiptBody =
+            receiptText.length > 120 &&
+            !/^loading receipt/i.test(receiptText.trim()) &&
+            (/\d/.test(receiptText) || /etb|birr|amount|transferred/i.test(receiptText));
+
+        if (slugFromUrl && (cleanId.includes(slugFromUrl) || slugFromUrl === cleanId) && hasReceiptBody) {
+            return true;
         }
-        if (cleanId.startsWith("v2-") && receiptUrl.toLowerCase().includes(cleanId.toLowerCase())) {
-            return receiptText.length > 80;
+        if (cleanId.startsWith("v2-") && receiptUrl.toLowerCase().includes(cleanId.toLowerCase()) && hasReceiptBody) {
+            return true;
+        }
+        if (referenceNo && referenceNo !== "N/A" && cleanId.includes(referenceNo)) {
+            return true;
         }
     }
 
@@ -78,20 +84,9 @@ function verifyCbeReceiptReference(
     );
 }
 
-async function readCbeAppsPdfReceipt(receiptUrl: string, allowedHost: string): Promise<string> {
+async function readCbeAppsPdfReceipt(receiptUrl: string, allowedHost: string): Promise<CBEReceiptData> {
     const { text } = await fetchAndParsePdf(receiptUrl, allowedHost);
-    return text;
-}
-
-async function readCbeMbReceiptHtml(receiptUrl: string): Promise<string> {
-    const html = await fetchHtmlViaHttp(receiptUrl, CBE_MBRECEIPT_HOST);
-    const $ = cheerio.load(html);
-    $("script, style, noscript").remove();
-    const text = $("body").text().replace(/\s+/g, " ").trim();
-    if (text.length < 40) {
-        throw new Error("Mbreciept page did not contain readable receipt content.");
-    }
-    return text;
+    return extractCbeFieldsFromReceiptText(text);
 }
 
 export async function CBEReadingPDF(transactionData: {
@@ -101,22 +96,23 @@ export async function CBEReadingPDF(transactionData: {
 }) {
     const receiptUrl = buildCbeReceiptUrl(transactionData.transaction_id, transactionData.transaction_url);
     const kind = detectCbeReceiptKind(receiptUrl) ?? "apps";
-    const cbeHost = new URL(receiptUrl).hostname;
 
     try {
+        let extracted: CBEReceiptData;
         let rawText: string;
 
         if (kind === "mbreciept") {
-            try {
-                rawText = await readCbeMbReceiptHtml(receiptUrl);
-            } catch {
-                rawText = await readCbeAppsPdfReceipt(receiptUrl, cbeHost);
-            }
+            extracted = await readCbeMbReceiptPage(receiptUrl);
+            rawText = JSON.stringify(extracted);
         } else {
-            rawText = await readCbeAppsPdfReceipt(receiptUrl, cbeHost);
+            extracted = await readCbeAppsPdfReceipt(receiptUrl, new URL(receiptUrl).hostname);
+            rawText = [
+                extracted.payer,
+                extracted.receiver,
+                extracted.referenceNo,
+                extracted.transferredAmount,
+            ].join(" ");
         }
-
-        const extracted = extractCbeFieldsFromReceiptText(rawText);
 
         const isVerified = verifyCbeReceiptReference(
             transactionData.transaction_id,

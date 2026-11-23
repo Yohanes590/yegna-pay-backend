@@ -1,5 +1,5 @@
 import type { BankAdapter, AdapterFetchResult, AdapterNormalizeOutcome, ReaderFetchParams } from "../bank.types.js";
-import { buildBankReceiptUrl } from "../domain.js";
+import { buildCbeReceiptUrl } from "../../../lib/cbe-receipt-hosts.js";
 import { CBEReadingPDF } from "../../../lib/reading-function/CBE-Reader.js";
 
 /**
@@ -14,10 +14,7 @@ export const cbeAdapter: BankAdapter = {
     linkReadable: "pdf",
 
     async fetchTransaction(params: ReaderFetchParams): Promise<AdapterFetchResult> {
-        const url =
-            params.transaction_url && params.transaction_url.startsWith("http")
-                ? params.transaction_url
-                : buildBankReceiptUrl(params.baseDomain, params.transaction_id, params.transaction_url);
+        const url = buildCbeReceiptUrl(params.transaction_id, params.transaction_url);
 
         const result = await CBEReadingPDF({
             platform: "CBE",
