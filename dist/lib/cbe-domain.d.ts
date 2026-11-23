@@ -1,8 +1,9 @@
 import "dotenv/config";
 /**
- * Validates and retrieves the configured CBE domain from environment variables.
- * Ensures consistent handling of trailing slashes.
+ * All configured CBE receipt base URLs (comma-separated in CBE_DOMAIN).
  */
+export declare function getCBEDomains(): URL[];
+/** Primary CBE domain — used when synthesizing links from a bare transaction id. */
 export declare function getCBEDomain(): URL;
 /**
  * Extracts only the transaction-specific portion that comes after the CBE domain.

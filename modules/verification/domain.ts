@@ -1,18 +1,23 @@
 import "dotenv/config";
 import { extractCleanTransactionId } from "../../lib/cbe-domain.js";
+import {
+    formatAllowedHostnames,
+    getEnvDomainUrls,
+    matchUrlAgainstAllowedBases,
+} from "../../lib/parse-env-domains.js";
 
-export function getDomainFromEnv(envVarName: string, fallbackUrl: string): URL {
-    const raw = process.env[envVarName] || fallbackUrl;
+export function getDomainsFromEnv(envVarName: string, fallbackUrl: string): URL[] {
     try {
-        const parsed = new URL(raw.trim());
-        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-            throw new Error(`Invalid protocol for ${envVarName}: ${parsed.protocol}`);
-        }
-        return parsed;
+        return getEnvDomainUrls(envVarName, fallbackUrl);
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "";
-        throw new Error(`Invalid ${envVarName} configuration: "${raw}". ${message}`.trim());
+        throw new Error(`Invalid ${envVarName} configuration. ${message}`.trim());
     }
+}
+
+/** Primary (first) domain — used when building receipt URLs from a bare transaction id. */
+export function getDomainFromEnv(envVarName: string, fallbackUrl: string): URL {
+    return getDomainsFromEnv(envVarName, fallbackUrl)[0]!;
 }
 
 export function validateBankDomain(
@@ -25,7 +30,7 @@ export function validateBankDomain(
         throw new Error("Transaction URL cannot be empty.");
     }
 
-    const baseDomain = getDomainFromEnv(envVarName, fallbackUrl);
+    const allowedDomains = getDomainsFromEnv(envVarName, fallbackUrl);
     let parsedInput: URL;
 
     try {
@@ -34,16 +39,11 @@ export function validateBankDomain(
         throw new Error(`Invalid ${bankLabel} transaction URL format. Must be a valid absolute URL.`);
     }
 
-    if (parsedInput.protocol !== baseDomain.protocol) {
-        throw new Error(`Invalid ${bankLabel} protocol: "${parsedInput.protocol}". Expected "${baseDomain.protocol}".`);
-    }
-
-    if (parsedInput.hostname.toLowerCase() !== baseDomain.hostname.toLowerCase()) {
-        throw new Error(`Invalid ${bankLabel} domain: "${parsedInput.hostname}". Expected "${baseDomain.hostname}".`);
-    }
-
-    if (baseDomain.port && parsedInput.port && parsedInput.port !== baseDomain.port) {
-        throw new Error(`Invalid port for ${bankLabel}: "${parsedInput.port}". Expected port "${baseDomain.port}".`);
+    const baseDomain = matchUrlAgainstAllowedBases(parsedInput, allowedDomains);
+    if (!baseDomain) {
+        throw new Error(
+            `Invalid ${bankLabel} domain: "${parsedInput.hostname}". Expected one of: ${formatAllowedHostnames(allowedDomains)}.`
+        );
     }
 
     const basePath = baseDomain.pathname.endsWith("/") ? baseDomain.pathname : `${baseDomain.pathname}/`;

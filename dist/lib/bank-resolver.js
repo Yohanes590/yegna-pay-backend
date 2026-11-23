@@ -1,6 +1,7 @@
 import { bankRegistry } from "./bank-registry.js";
 import { extractCleanTransactionId } from "./cbe-domain.js";
 import { buildLegacyBankConfig, getAliasMap, getRuntimeBankByPlatform, listEnabledBanks, } from "../modules/verification/bank.registry.js";
+import { getDomainsFromEnv } from "../modules/verification/domain.js";
 const BANK_CODE_TO_REGISTRY_ID = {
     CBE: "CBE",
     AWASH: "AWAS_BANK",
@@ -33,9 +34,9 @@ export function detectBankFromUrl(candidateUrl) {
     const inputHost = parsed.hostname.toLowerCase();
     for (const entry of listEnabledBanks()) {
         try {
-            const config = getBankConfigByCode(entry.platform);
-            const expectedUrl = config.getDomain();
-            if (expectedUrl.hostname.toLowerCase() === inputHost) {
+            const expectedUrls = getDomainsFromEnv(entry.domain_env, entry.domain_fallback);
+            const matched = expectedUrls.some((base) => base.hostname.toLowerCase() === inputHost);
+            if (matched) {
                 return entry.platform;
             }
         }

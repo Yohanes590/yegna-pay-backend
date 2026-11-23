@@ -33,6 +33,22 @@ describe("bank registry", () => {
         assert.equal(detected, "CBE");
     });
 
+    it("detects CBE from alternate receipt domain when configured", () => {
+        const previous = process.env.CBE_DOMAIN;
+        process.env.CBE_DOMAIN = "https://apps.cbe.com.et/, https://Mbreciept.cbe.com.et/";
+        try {
+            const detected = detectBankFromUrl("https://Mbreciept.cbe.com.et/?id=FT26063D7W5C");
+            assert.equal(detected, "CBE");
+            const resolved = resolveBankAndTransaction({
+                rawTransactionId: "https://Mbreciept.cbe.com.et/?id=FT26063D7W5C",
+            });
+            assert.equal(resolved.ok, true);
+        } finally {
+            if (previous === undefined) delete process.env.CBE_DOMAIN;
+            else process.env.CBE_DOMAIN = previous;
+        }
+    });
+
     it("rejects unknown platform", () => {
         const resolved = resolveBankAndTransaction({
             platform: "UNKNOWN_BANK",

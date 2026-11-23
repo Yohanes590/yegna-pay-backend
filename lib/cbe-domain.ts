@@ -1,24 +1,22 @@
 import "dotenv/config";
+import {
+    formatAllowedHostnames,
+    getEnvDomainUrls,
+    matchUrlAgainstAllowedBases,
+} from "./parse-env-domains.js";
+
+const CBE_DOMAIN_FALLBACK = "https://apps.cbe.com.et/";
 
 /**
- * Validates and retrieves the configured CBE domain from environment variables.
- * Ensures consistent handling of trailing slashes.
+ * All configured CBE receipt base URLs (comma-separated in CBE_DOMAIN).
  */
-export function getCBEDomain(): URL {
-    const rawDomain = process.env.CBE_DOMAIN;
-    if (!rawDomain || typeof rawDomain !== "string" || rawDomain.trim() === "") {
-        throw new Error("CBE_DOMAIN is not configured in environment variables.");
-    }
+export function getCBEDomains(): URL[] {
+    return getEnvDomainUrls("CBE_DOMAIN", CBE_DOMAIN_FALLBACK);
+}
 
-    try {
-        const parsed = new URL(rawDomain.trim());
-        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-            throw new Error(`Invalid protocol for CBE_DOMAIN: ${parsed.protocol}`);
-        }
-        return parsed;
-    } catch (err: any) {
-        throw new Error(`Invalid CBE_DOMAIN configuration: "${rawDomain}". ${err?.message || ""}`.trim());
-    }
+/** Primary CBE domain — used when synthesizing links from a bare transaction id. */
+export function getCBEDomain(): URL {
+    return getCBEDomains()[0]!;
 }
 
 /**
@@ -31,7 +29,7 @@ export function extractCBETransactionPath(inputUrlStr: string): { extractedPath:
         throw new Error("Transaction URL cannot be empty.");
     }
 
-    const cbeBase = getCBEDomain();
+    const allowedBases = getCBEDomains();
     let parsedInput: URL;
 
     try {
@@ -40,19 +38,11 @@ export function extractCBETransactionPath(inputUrlStr: string): { extractedPath:
         throw new Error("Invalid transaction URL format. Must be a valid absolute URL.");
     }
 
-    // Validate protocol
-    if (parsedInput.protocol !== cbeBase.protocol) {
-        throw new Error(`Invalid CBE protocol: "${parsedInput.protocol}". Expected "${cbeBase.protocol}".`);
-    }
-
-    // Validate domain / hostname
-    if (parsedInput.hostname.toLowerCase() !== cbeBase.hostname.toLowerCase()) {
-        throw new Error(`Invalid CBE domain: "${parsedInput.hostname}". Expected "${cbeBase.hostname}".`);
-    }
-
-    // Validate port if the configured domain explicitly defines a non-default port
-    if (cbeBase.port && parsedInput.port && parsedInput.port !== cbeBase.port) {
-        throw new Error(`Invalid port: "${parsedInput.port}". Expected port "${cbeBase.port}".`);
+    const cbeBase = matchUrlAgainstAllowedBases(parsedInput, allowedBases);
+    if (!cbeBase) {
+        throw new Error(
+            `Invalid CBE domain: "${parsedInput.hostname}". Expected one of: ${formatAllowedHostnames(allowedBases)}.`
+        );
     }
 
     // Extract everything following the configured CBE domain root

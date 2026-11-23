@@ -1,4 +1,6 @@
 import "dotenv/config";
+import { getCBEDomain } from "../cbe-domain.js";
+import { buildBankReceiptUrl } from "../../modules/verification/domain.js";
 import { fetchAndParsePdf } from "../../modules/verification/readers/pdf.reader.js";
 
 interface CBEReceiptData {
@@ -11,22 +13,16 @@ interface CBEReceiptData {
 }
 
 export async function CBEReadingPDF(transactionData: { platform: string; transaction_id: string; transaction_url?: string }) {
-    const rawCbeDomain = process.env.CBE_DOMAIN || "https://apps.cbe.com.et/";
-    const normalizedDomain = rawCbeDomain.endsWith("/") ? rawCbeDomain : `${rawCbeDomain}/`;
+    const primaryDomain = getCBEDomain();
 
-    let cbe_link: string;
-    if (transactionData.transaction_url && (transactionData.transaction_url.startsWith("http://") || transactionData.transaction_url.startsWith("https://"))) {
-        cbe_link = transactionData.transaction_url;
-    } else if (transactionData.transaction_id && (transactionData.transaction_id.startsWith("http://") || transactionData.transaction_id.startsWith("https://"))) {
-        cbe_link = transactionData.transaction_id;
-    } else if (transactionData.transaction_id && (transactionData.transaction_id.startsWith("?") || transactionData.transaction_id.startsWith("#") || transactionData.transaction_id.startsWith("/"))) {
-        cbe_link = `${normalizedDomain}${transactionData.transaction_id.replace(/^\//, "")}`;
-    } else {
-        cbe_link = `${normalizedDomain}?id=${transactionData.transaction_id}`;
-    }
+    const cbe_link = buildBankReceiptUrl(
+        primaryDomain,
+        transactionData.transaction_id,
+        transactionData.transaction_url
+    );
 
     try {
-        const cbeHost = new URL(normalizedDomain).hostname;
+        const cbeHost = new URL(cbe_link).hostname;
         const { text: rawText } = await fetchAndParsePdf(cbe_link, cbeHost);
         const extracted: CBEReceiptData = {
             payer: (rawText.match(/Payer\s*([\s\S]*?)\nAccount/i)?.[1] ?? "Unknown")

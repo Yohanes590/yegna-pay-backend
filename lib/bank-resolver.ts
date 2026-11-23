@@ -7,6 +7,7 @@ import {
     listEnabledBanks,
 } from "../modules/verification/bank.registry.js";
 import type { BankPlatformCode } from "../modules/verification/bank.types.js";
+import { getDomainsFromEnv } from "../modules/verification/domain.js";
 
 export type SupportedBankCode = BankPlatformCode;
 
@@ -46,9 +47,9 @@ export function detectBankFromUrl(candidateUrl: string): SupportedBankCode | nul
     const inputHost = parsed.hostname.toLowerCase();
     for (const entry of listEnabledBanks()) {
         try {
-            const config = getBankConfigByCode(entry.platform);
-            const expectedUrl = config.getDomain();
-            if (expectedUrl.hostname.toLowerCase() === inputHost) {
+            const expectedUrls = getDomainsFromEnv(entry.domain_env, entry.domain_fallback);
+            const matched = expectedUrls.some((base) => base.hostname.toLowerCase() === inputHost);
+            if (matched) {
                 return entry.platform;
             }
         } catch {
