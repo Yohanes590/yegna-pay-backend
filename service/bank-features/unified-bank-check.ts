@@ -326,33 +326,33 @@ export async function verifyAndSaveBankTransaction(
     const cleanTransferred = parseNumericAmount(receipt.transferredAmount);
     const cleanPrice = parseNumericAmount(requestedPriceAmount);
 
-    if (!paymentOnly) {
-        if (cleanTransferred === null || cleanPrice === null || cleanTransferred !== cleanPrice) {
-            return {
-                status: "FAILED",
-                message: "Transaction amount does not match the requested price",
-                success: false,
-                data: null,
-                vs: `${receipt.transferredAmount} vs ${requestedPriceAmount}`,
-                errorKey: "AMOUNT_MISMATCH",
-                httpStatus: 400,
-            };
-        }
-    }
-
-    const storedAmount = paymentOnly ? (cleanTransferred ?? cleanPrice) : cleanTransferred;
-    if (storedAmount === null || storedAmount === undefined) {
+    if (cleanTransferred === null || cleanPrice === null) {
         return {
             status: "FAILED",
             message: paymentOnly
-                ? "Could not determine transaction amount for storage."
+                ? "Could not read a valid amount from the bank receipt to compare with price_amount."
                 : "Transaction amount does not match the requested price",
             success: false,
             data: null,
-            errorKey: paymentOnly ? "INVALID_RECEIPT_AMOUNT" : "AMOUNT_MISMATCH",
+            vs: `${receipt.transferredAmount} vs ${requestedPriceAmount}`,
+            errorKey: cleanTransferred === null ? "INVALID_RECEIPT_AMOUNT" : "INVALID_AMOUNT",
             httpStatus: 400,
         };
     }
+
+    if (cleanTransferred !== cleanPrice) {
+        return {
+            status: "FAILED",
+            message: "Transaction amount does not match the requested price",
+            success: false,
+            data: null,
+            vs: `${receipt.transferredAmount} vs ${requestedPriceAmount}`,
+            errorKey: "AMOUNT_MISMATCH",
+            httpStatus: 400,
+        };
+    }
+
+    const storedAmount = cleanTransferred;
 
     if (!paymentOnly) {
         const parsedReceiptDate = parseBankReceiptDate(receipt.paymentDateTime);
