@@ -1,10 +1,5 @@
 import "dotenv/config";
-/**
- * All configured CBE receipt base URLs (comma-separated in CBE_DOMAIN).
- */
-export declare function getCBEDomains(): URL[];
-/** Primary CBE domain — used when synthesizing links from a bare transaction id. */
-export declare function getCBEDomain(): URL;
+export { buildCbeReceiptUrl, detectCbeReceiptKind, getCBEDomain, getCBEDomains, mergeCbeReceiptDomains, CBE_MBRECEIPT_HOST, CBE_APPS_HOST, } from "./cbe-receipt-hosts.js";
 /**
  * Extracts only the transaction-specific portion that comes after the CBE domain.
  * Supports path, query parameters, and fragments.

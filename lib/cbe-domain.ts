@@ -1,23 +1,15 @@
 import "dotenv/config";
-import {
-    formatAllowedHostnames,
-    getEnvDomainUrls,
-    matchUrlAgainstAllowedBases,
-} from "./parse-env-domains.js";
-
-const CBE_DOMAIN_FALLBACK = "https://apps.cbe.com.et/";
-
-/**
- * All configured CBE receipt base URLs (comma-separated in CBE_DOMAIN).
- */
-export function getCBEDomains(): URL[] {
-    return getEnvDomainUrls("CBE_DOMAIN", CBE_DOMAIN_FALLBACK);
-}
-
-/** Primary CBE domain — used when synthesizing links from a bare transaction id. */
-export function getCBEDomain(): URL {
-    return getCBEDomains()[0]!;
-}
+import { formatAllowedHostnames, matchUrlAgainstAllowedBases } from "./parse-env-domains.js";
+export {
+    buildCbeReceiptUrl,
+    detectCbeReceiptKind,
+    getCBEDomain,
+    getCBEDomains,
+    mergeCbeReceiptDomains,
+    CBE_MBRECEIPT_HOST,
+    CBE_APPS_HOST,
+} from "./cbe-receipt-hosts.js";
+import { getCBEDomains } from "./cbe-receipt-hosts.js";
 
 /**
  * Extracts only the transaction-specific portion that comes after the CBE domain.

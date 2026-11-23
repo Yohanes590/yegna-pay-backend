@@ -1,9 +1,14 @@
 import "dotenv/config";
 import { extractCleanTransactionId } from "../../lib/cbe-domain.js";
 import { formatAllowedHostnames, getEnvDomainUrls, matchUrlAgainstAllowedBases, } from "../../lib/parse-env-domains.js";
+import { mergeCbeReceiptDomains } from "../../lib/cbe-receipt-hosts.js";
 export function getDomainsFromEnv(envVarName, fallbackUrl) {
     try {
-        return getEnvDomainUrls(envVarName, fallbackUrl);
+        const parsed = getEnvDomainUrls(envVarName, fallbackUrl);
+        if (envVarName === "CBE_DOMAIN") {
+            return mergeCbeReceiptDomains(parsed);
+        }
+        return parsed;
     }
     catch (err) {
         const message = err instanceof Error ? err.message : "";

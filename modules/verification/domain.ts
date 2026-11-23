@@ -5,10 +5,15 @@ import {
     getEnvDomainUrls,
     matchUrlAgainstAllowedBases,
 } from "../../lib/parse-env-domains.js";
+import { mergeCbeReceiptDomains } from "../../lib/cbe-receipt-hosts.js";
 
 export function getDomainsFromEnv(envVarName: string, fallbackUrl: string): URL[] {
     try {
-        return getEnvDomainUrls(envVarName, fallbackUrl);
+        const parsed = getEnvDomainUrls(envVarName, fallbackUrl);
+        if (envVarName === "CBE_DOMAIN") {
+            return mergeCbeReceiptDomains(parsed);
+        }
+        return parsed;
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "";
         throw new Error(`Invalid ${envVarName} configuration. ${message}`.trim());

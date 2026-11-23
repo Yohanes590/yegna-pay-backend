@@ -46,6 +46,28 @@ describe("bank registry", () => {
                 process.env.CBE_DOMAIN = previous;
         }
     });
+    it("accepts mbreciept v2 links even when env lists only apps.cbe.com.et", () => {
+        const previous = process.env.CBE_DOMAIN;
+        process.env.CBE_DOMAIN = "https://apps.cbe.com.et/";
+        try {
+            const detected = detectBankFromUrl("https://mbreciept.cbe.com.et/v2-hfHCxzvJMIkoyjrs4eie");
+            assert.equal(detected, "CBE");
+            const resolved = resolveBankAndTransaction({
+                rawTransactionId: "https://mbreciept.cbe.com.et/v2-hfHCxzvJMIkoyjrs4eie",
+            });
+            assert.equal(resolved.ok, true);
+            if (resolved.ok) {
+                assert.equal(resolved.transactionId, "v2-hfHCxzvJMIkoyjrs4eie");
+                assert.match(resolved.transactionUrl, /mbreciept\.cbe\.com\.et/i);
+            }
+        }
+        finally {
+            if (previous === undefined)
+                delete process.env.CBE_DOMAIN;
+            else
+                process.env.CBE_DOMAIN = previous;
+        }
+    });
     it("rejects unknown platform", () => {
         const resolved = resolveBankAndTransaction({
             platform: "UNKNOWN_BANK",

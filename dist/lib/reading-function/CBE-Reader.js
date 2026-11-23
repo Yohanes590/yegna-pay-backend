@@ -1,41 +1,92 @@
 import "dotenv/config";
-import { getCBEDomain } from "../cbe-domain.js";
-import { buildBankReceiptUrl } from "../../modules/verification/domain.js";
+import * as cheerio from "cheerio";
+import { buildCbeReceiptUrl, detectCbeReceiptKind, CBE_MBRECEIPT_HOST, } from "../cbe-receipt-hosts.js";
+import { extractCleanTransactionId } from "../cbe-domain.js";
 import { fetchAndParsePdf } from "../../modules/verification/readers/pdf.reader.js";
+import { fetchHtmlViaHttp } from "../../modules/verification/readers/web.reader.js";
+function extractCbeFieldsFromReceiptText(rawText) {
+    return {
+        payer: (rawText.match(/Payer\s*([\s\S]*?)\nAccount/i)?.[1] ?? "Unknown")
+            .trim()
+            .replace(/\n/g, " "),
+        receiver: (rawText.match(/Receiver\s*([\s\S]*?)\nAccount/i)?.[1] ?? "Unknown")
+            .trim()
+            .replace(/\n/g, " "),
+        paymentDateTime: (rawText.match(/Payment Date & Time\s*(.*)\n/i)?.[1] ?? "N/A").trim(),
+        referenceNo: (rawText.match(/Reference No\. \(VAT Invoice No\)\s*(.*)\n/i)?.[1] ?? "N/A").trim(),
+        transferredAmount: (rawText.match(/Transferred Amount\s*(.*)\n/i)?.[1] ?? "0.00 ETB").trim(),
+        totalAmountDebited: (rawText.match(/Total amount debited from customers account\s*(.*)\n/i)?.[1] ?? "0.00 ETB").trim(),
+    };
+}
+function verifyCbeReceiptReference(transaction_id, transaction_url, receiptUrl, referenceNo, receiptText) {
+    const cleanId = extractCleanTransactionId(transaction_id) || transaction_id.trim();
+    const slugFromUrl = (() => {
+        try {
+            const seg = new URL(receiptUrl).pathname.split("/").filter(Boolean).pop();
+            return seg || "";
+        }
+        catch {
+            return "";
+        }
+    })();
+    if (detectCbeReceiptKind(receiptUrl) === "mbreciept") {
+        if (slugFromUrl && (cleanId.includes(slugFromUrl) || slugFromUrl === cleanId)) {
+            return receiptText.length > 80;
+        }
+        if (cleanId.startsWith("v2-") && receiptUrl.toLowerCase().includes(cleanId.toLowerCase())) {
+            return receiptText.length > 80;
+        }
+    }
+    if (!referenceNo || referenceNo === "N/A") {
+        return false;
+    }
+    return Boolean(cleanId.includes(referenceNo) ||
+        referenceNo.includes(cleanId) ||
+        referenceNo + "11294152" === cleanId ||
+        (transaction_url && transaction_url.includes(referenceNo)));
+}
+async function readCbeAppsPdfReceipt(receiptUrl, allowedHost) {
+    const { text } = await fetchAndParsePdf(receiptUrl, allowedHost);
+    return text;
+}
+async function readCbeMbReceiptHtml(receiptUrl) {
+    const html = await fetchHtmlViaHttp(receiptUrl, CBE_MBRECEIPT_HOST);
+    const $ = cheerio.load(html);
+    $("script, style, noscript").remove();
+    const text = $("body").text().replace(/\s+/g, " ").trim();
+    if (text.length < 40) {
+        throw new Error("Mbreciept page did not contain readable receipt content.");
+    }
+    return text;
+}
 export async function CBEReadingPDF(transactionData) {
-    const primaryDomain = getCBEDomain();
-    const cbe_link = buildBankReceiptUrl(primaryDomain, transactionData.transaction_id, transactionData.transaction_url);
+    const receiptUrl = buildCbeReceiptUrl(transactionData.transaction_id, transactionData.transaction_url);
+    const kind = detectCbeReceiptKind(receiptUrl) ?? "apps";
+    const cbeHost = new URL(receiptUrl).hostname;
     try {
-        const cbeHost = new URL(cbe_link).hostname;
-        const { text: rawText } = await fetchAndParsePdf(cbe_link, cbeHost);
-        const extracted = {
-            payer: (rawText.match(/Payer\s*([\s\S]*?)\nAccount/i)?.[1] ?? "Unknown")
-                .trim()
-                .replace(/\n/g, " "),
-            receiver: (rawText.match(/Receiver\s*([\s\S]*?)\nAccount/i)?.[1] ?? "Unknown")
-                .trim()
-                .replace(/\n/g, " "),
-            paymentDateTime: (rawText.match(/Payment Date & Time\s*(.*)\n/i)?.[1] ?? "N/A")
-                .trim(),
-            referenceNo: (rawText.match(/Reference No\. \(VAT Invoice No\)\s*(.*)\n/i)?.[1] ?? "N/A")
-                .trim(),
-            transferredAmount: (rawText.match(/Transferred Amount\s*(.*)\n/i)?.[1] ?? "0.00 ETB")
-                .trim(),
-            totalAmountDebited: (rawText.match(/Total amount debited from customers account\s*(.*)\n/i)?.[1] ?? "0.00 ETB")
-                .trim()
-        };
-        const isVerified = Boolean(extracted.referenceNo &&
-            (transactionData.transaction_id.includes(extracted.referenceNo) ||
-                extracted.referenceNo.includes(transactionData.transaction_id) ||
-                (extracted.referenceNo + "11294152" === transactionData.transaction_id)));
+        let rawText;
+        if (kind === "mbreciept") {
+            try {
+                rawText = await readCbeMbReceiptHtml(receiptUrl);
+            }
+            catch {
+                rawText = await readCbeAppsPdfReceipt(receiptUrl, cbeHost);
+            }
+        }
+        else {
+            rawText = await readCbeAppsPdfReceipt(receiptUrl, cbeHost);
+        }
+        const extracted = extractCbeFieldsFromReceiptText(rawText);
+        const isVerified = verifyCbeReceiptReference(transactionData.transaction_id, transactionData.transaction_url, receiptUrl, extracted.referenceNo, rawText);
         return {
             success: true,
             extractedData: extracted,
-            isVerified
+            isVerified,
         };
     }
     catch (error) {
-        return { success: false, error: error?.message || "Failed to read receipt" };
+        const message = error instanceof Error ? error.message : "Failed to read receipt";
+        return { success: false, error: message };
     }
 }
 //# sourceMappingURL=CBE-Reader.js.map

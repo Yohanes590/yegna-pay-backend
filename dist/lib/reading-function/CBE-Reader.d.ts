@@ -18,7 +18,7 @@ export declare function CBEReadingPDF(transactionData: {
     error?: never;
 } | {
     success: boolean;
-    error: any;
+    error: string;
     extractedData?: never;
     isVerified?: never;
 }>;
